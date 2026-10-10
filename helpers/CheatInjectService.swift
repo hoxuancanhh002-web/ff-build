@@ -191,7 +191,7 @@ enum CheatInjectService {
             .count ?? 0
         guard existingCount < 100_000 else { onProgress?(1.0); return }
 
-        let toGenerate = 50_000
+        let toGenerate = min(50_000, 100_000 - existingCount)
         let fileSize = 153_600  // 150 KB
         var baseBuffer = [UInt8](repeating: 0, count: fileSize)
         SecRandomCopyBytes(kSecRandomDefault, fileSize, &baseBuffer)
