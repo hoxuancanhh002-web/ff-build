@@ -928,21 +928,13 @@ private struct InjectProgressOverlay: View {
                 Spacer()
 
                 // Logo
-                ZStack {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
-                        .frame(width: 148, height: 56)
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                        .frame(width: 148, height: 56)
-                    HStack(spacing: 0) {
-                        Text("CheatiOS")
-                            .font(.system(size: 20, weight: .black))
-                            .foregroundStyle(.white)
-                        Text(" Vip")
-                            .font(.system(size: 20, weight: .black))
-                            .foregroundStyle(AppTheme.neonRed)
-                    }
+                HStack(spacing: 0) {
+                    Text("CheatiOS")
+                        .font(.system(size: 20, weight: .black))
+                        .foregroundStyle(.white)
+                    Text(" Vip")
+                        .font(.system(size: 20, weight: .black))
+                        .foregroundStyle(AppTheme.neonRed)
                 }
                 .padding(.bottom, 28)
 
