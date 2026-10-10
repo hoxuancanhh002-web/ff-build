@@ -602,19 +602,11 @@ final class FreefireESPStore: ObservableObject {
                 }
             }
 
-            // Xóa patch bytes sau 5s (stealth), nhưng GIỮ LẠI esp_cfg để C# đọc liên tục.
-            // removePatches() xóa luôn esp_cfg → C# mất config → feature tắt sau 5s.
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            await MainActor.run { [weak self] in
-                guard let self, self.quickPatchGeneration == myGen else { return }
-                guard let (_, container) = self.resolvedContainer else { return }
-                let fm = FileManager.default
-                let docsPath = self.documentsPath(in: container)
-                try? fm.removeItem(atPath: self.patchBytesPath(in: container))
-                try? fm.removeItem(atPath: self.localConfigPath(in: container))
-                try? fm.removeItem(atPath: (docsPath as NSString)
-                    .appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.tok"))
-                self.refresh()
+            try? await Task.sleep(nanoseconds: 7_000_000_000)
+            await MainActor.run {
+                if self.quickPatchGeneration == myGen {
+                    self.removePatches()
+                }
             }
         }
     }
