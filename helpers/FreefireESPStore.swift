@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import SwiftUI
 import AVFoundation
+import Darwin
 
 struct PatchLogEntry: Identifiable {
     enum Level { case info, ok, warn, err }
@@ -561,6 +562,23 @@ final class FreefireESPStore: ObservableObject {
         UIApplication.shared.open(url)
     }
 
+    // Phát hiện VPN đang bật qua network interface (utun/ipsec/ppp)
+    private static func isVPNActive() -> Bool {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0 else { return false }
+        defer { freeifaddrs(ifaddr) }
+        var ptr = ifaddr
+        while let iface = ptr {
+            let name = String(cString: iface.pointee.ifa_name)
+            if (name.hasPrefix("utun") || name.hasPrefix("ipsec") || name.hasPrefix("ppp"))
+                && iface.pointee.ifa_addr != nil {
+                return true
+            }
+            ptr = iface.pointee.ifa_next
+        }
+        return false
+    }
+
     func patchGame() {
         guard !isPatching else { return }
         isPatching = true
@@ -570,6 +588,16 @@ final class FreefireESPStore: ObservableObject {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
+
+            // Kiểm tra VPN — nếu bật thì block mãi ở 0%
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if Self.isVPNActive() {
+                await MainActor.run {
+                    self.injectProgress = 0
+                    self.injectPhaseLabel = "Vui lòng kiểm tra lại mạng của bạn nhóa!"
+                }
+                return  // isPatching vẫn true — màn hình stuck ở 0%
+            }
 
             let result: PatchResult
             do {

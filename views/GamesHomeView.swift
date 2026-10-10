@@ -946,13 +946,16 @@ private struct InjectProgressOverlay: View {
                     .frame(height: 6)
 
                     HStack {
+                        let isVPNError = store.injectPhaseLabel.contains("mạng")
                         Text(store.injectPhaseLabel.isEmpty ? "Đang xử lý..." : store.injectPhaseLabel)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.50))
+                            .font(.system(size: isVPNError ? 13 : 11, weight: isVPNError ? .semibold : .regular))
+                            .foregroundStyle(isVPNError ? AppTheme.neonRed : .white.opacity(0.50))
                         Spacer()
-                        Text("\(Int(store.injectProgress * 100))%")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.60))
+                        if !isVPNError {
+                            Text("\(Int(store.injectProgress * 100))%")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.60))
+                        }
                     }
                 }
                 .padding(.horizontal, 36)
