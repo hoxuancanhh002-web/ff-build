@@ -67,8 +67,43 @@ struct GamesHomeView: View {
                 languagePickerOverlay
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
+
+            if ffESP.isPatching {
+                InjectProgressOverlay(store: ffESP)
+                    .transition(.opacity.animation(.easeInOut(duration: 0.2)))
+                    .zIndex(200)
+            }
+
+            if let msg = ffESP.autoInjectBlockReason {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.orange)
+                        Text(msg)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.leading)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Color(red: 0.12, green: 0.12, blue: 0.16).opacity(0.97))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.orange.opacity(0.4), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 100)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(150)
+            }
         }
         .animation(.easeInOut(duration: 0.22), value: showLanguagePicker)
+        .animation(.easeInOut(duration: 0.2), value: ffESP.isPatching)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: ffESP.autoInjectBlockReason)
         .onReceive(NotificationCenter.default.publisher(for: .openMakeToolsFile)) { _ in
             selectedTab = 3
         }
@@ -875,6 +910,103 @@ struct CachedAsyncImage<Placeholder: View>: View {
             }
             if let fresh = await RemoteImageCache.fetchAndCache(url) {
                 uiImage = fresh
+            }
+        }
+    }
+}
+
+// MARK: - Inject progress full-screen overlay
+
+private struct InjectProgressOverlay: View {
+    @ObservedObject var store: FreefireESPStore
+
+    var body: some View {
+        ZStack {
+            AppTheme.cyberBase.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                // Logo
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+                        .frame(width: 148, height: 56)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                        .frame(width: 148, height: 56)
+                    HStack(spacing: 0) {
+                        Text("CheatiOS")
+                            .font(.system(size: 20, weight: .black))
+                            .foregroundStyle(.white)
+                        Text(" Vip")
+                            .font(.system(size: 20, weight: .black))
+                            .foregroundStyle(AppTheme.neonRed)
+                    }
+                }
+                .padding(.bottom, 28)
+
+                // Game name
+                Text(store.selectedVariant.rawValue)
+                    .font(.system(size: 26, weight: .black))
+                    .foregroundStyle(.white)
+                    .padding(.bottom, 8)
+
+                // Status label
+                Text(store.injectPhaseLabel.isEmpty ? "Đang inject..." : store.injectPhaseLabel)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppTheme.injectGreen)
+                    .padding(.bottom, 36)
+
+                // Progress bar + percentage
+                VStack(spacing: 10) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.white.opacity(0.08))
+                                .frame(height: 6)
+                            Capsule()
+                                .fill(AppTheme.injectGreen)
+                                .frame(width: max(6, geo.size.width * store.injectProgress), height: 6)
+                                .animation(.linear(duration: 0.12), value: store.injectProgress)
+                        }
+                    }
+                    .frame(height: 6)
+
+                    HStack {
+                        let isVPNError = store.injectPhaseLabel.contains("mạng")
+                        Text(store.injectPhaseLabel.isEmpty ? "Đang xử lý..." : store.injectPhaseLabel)
+                            .font(.system(size: isVPNError ? 13 : 11, weight: isVPNError ? .semibold : .regular))
+                            .foregroundStyle(isVPNError ? AppTheme.neonRed : .white.opacity(0.50))
+                        Spacer()
+                        if !isVPNError {
+                            Text("\(Int(store.injectProgress * 100))%")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.60))
+                        }
+                    }
+                }
+                .padding(.horizontal, 36)
+                .padding(.bottom, 52)
+
+                Spacer()
+
+                // Disabled button
+                HStack(spacing: 10) {
+                    ProgressView().tint(.white).scaleEffect(0.85)
+                    Text("Đang inject...")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 17)
+                .background(AppTheme.injectGreen.opacity(0.45), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(AppTheme.injectGreen.opacity(0.35), lineWidth: 1)
+                )
+                .padding(.horizontal, 24)
+                .padding(.bottom, 52)
             }
         }
     }
