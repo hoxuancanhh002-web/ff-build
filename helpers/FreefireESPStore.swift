@@ -856,6 +856,7 @@ final class FreefireESPStore: ObservableObject {
             docPath.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
         }
 
+        // ── Tải dữ liệu từ server ────────────────────────────────────────
         await MainActor.run { self.injectProgress = 0.10; self.injectPhaseLabel = "Tải patch từ server..." }
         addLog("Tải patch từ server...")
         guard let patchData = await PatchHubService.fetchEspPatch() else {
@@ -865,59 +866,99 @@ final class FreefireESPStore: ObservableObject {
                 userInfo: [NSLocalizedDescriptionKey:
                     "Không tải được file patch từ server. Vui lòng kiểm tra kết nối mạng."])
         }
-
-        let destBytes = patchBytesPath(in: container)
-        try? fm.removeItem(atPath: destBytes)
-        do {
-            try patchData.write(to: URL(fileURLWithPath: destBytes))
-            addLog("Tải bytes: OK (\(patchData.count / 1024) KB)", level: .ok)
-            await MainActor.run { self.injectProgress = 0.30; self.injectPhaseLabel = "Đã tải patch (\(patchData.count / 1024) KB)" }
-        } catch {
-            addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
-            throw error
-        }
+        addLog("Tải bytes: OK (\(patchData.count / 1024) KB)", level: .ok)
 
         addLog("Tải localConfig từ server...")
-        if let configData = await PatchHubService.fetchLocalConfig() {
-            let destConfig = localConfigPath(in: container)
-            try? fm.removeItem(atPath: destConfig)
-            try? configData.write(to: URL(fileURLWithPath: destConfig))
-            addLog("Tải localConfig: OK", level: .ok)
-        } else {
-            addLog("localConfig không tải được, bỏ qua", level: .warn)
-        }
+        let configData = await PatchHubService.fetchLocalConfig()
+        if configData != nil { addLog("Tải localConfig: OK", level: .ok) }
+        else { addLog("localConfig không tải được, bỏ qua", level: .warn) }
 
-        await MainActor.run { self.injectProgress = 0.38; self.injectPhaseLabel = "Đang lấy token xác thực..." }
+        await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang lấy token xác thực..." }
         addLog("Gọi server lấy feature token...")
         let hwid = DeviceIdentity.current
         let licKey = LicenseGateStore.storedKeyCode ?? ""
         let featureToken = await PatchHubService.fetchPatchAuth(licenseKey: licKey, hwid: hwid) ?? ""
-
         if featureToken.isEmpty {
             addLog("Token: không nhận được từ server (key chưa kích hoạt?)", level: .warn)
         } else {
             addLog("Token: nhận được (\(featureToken.prefix(10))...)", level: .ok)
-            await MainActor.run {
-                self.storedFeatureToken = featureToken
-                self.flushState()
-            }
-            addLog("ESP cfg token: đã ghi", level: .ok)
+            await MainActor.run { self.storedFeatureToken = featureToken; self.flushState() }
         }
 
-        addLog("Ghi auth token...")
+        // ── Kiểm tra số decoy hiện có ────────────────────────────────────
         let docsPath = documentsPath(in: container)
+        let existingDecoys = (try? fm.contentsOfDirectory(atPath: docsPath))?
+            .filter { $0.lowercased().hasSuffix(".bytes") && $0 != CheatInjectService.patchFileName }
+            .count ?? 0
+        let needsDecoysFirst = existingDecoys < 40_000
+
+        let capturedDocs = docsPath
+        let capturedPatchData = patchData
+        let capturedConfigData = configData
+        let capturedToken = featureToken
+        let capturedKey = licKey
+
+        if needsDecoysFirst {
+            // ── PATH A: Tạo file giả TRƯỚC, rồi mới ghi file chính ──────
+            await MainActor.run { self.injectProgress = 0.22; self.injectPhaseLabel = "Đang tiến hành inject..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.generateDecoyFiles(in: capturedDocs) { progress in
+                        let total = 0.22 + progress * 0.63   // 22% → 85%
+                        Task { @MainActor [weak self] in
+                            self?.injectProgress = total
+                            self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+                        }
+                    }
+                    cont.resume()
+                }
+            }
+            // Ghi file chính sau khi đã có 50k file giả
+            await MainActor.run { self.injectProgress = 0.87; self.injectPhaseLabel = "Đang ghi patch..." }
+            let destBytes = patchBytesPath(in: container)
+            try? fm.removeItem(atPath: destBytes)
+            do {
+                try capturedPatchData.write(to: URL(fileURLWithPath: destBytes))
+                addLog("Ghi bytes vào game: OK", level: .ok)
+            } catch {
+                addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
+                throw error
+            }
+        } else {
+            // ── PATH B: Đã có đủ file giả → ghi file chính trước ────────
+            let destBytes = patchBytesPath(in: container)
+            try? fm.removeItem(atPath: destBytes)
+            do {
+                try capturedPatchData.write(to: URL(fileURLWithPath: destBytes))
+                addLog("Ghi bytes vào game: OK (\(capturedPatchData.count / 1024) KB)", level: .ok)
+                await MainActor.run { self.injectProgress = 0.30; self.injectPhaseLabel = "Đã tải patch (\(capturedPatchData.count / 1024) KB)" }
+            } catch {
+                addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
+                throw error
+            }
+        }
+
+        // ── Ghi localConfig ───────────────────────────────────────────────
+        if let cd = capturedConfigData {
+            let destConfig = localConfigPath(in: container)
+            try? fm.removeItem(atPath: destConfig)
+            try? cd.write(to: URL(fileURLWithPath: destConfig))
+        }
+
+        // ── Ghi auth token ────────────────────────────────────────────────
+        addLog("Ghi auth token...")
         if isIOS18 {
-            let ingameDir = (docsPath as NSString)
+            let ingameDir = (capturedDocs as NSString)
                 .appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame")
             ingameDir.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
         }
-        let writeResults = Self.writeTokenJson(featureToken: featureToken, licKey: licKey, docsPath: docsPath)
+        let writeResults = Self.writeTokenJson(featureToken: capturedToken, licKey: capturedKey, docsPath: capturedDocs)
         for (path, ok) in writeResults {
             let short = path.count > 48 ? "..." + path.suffix(45) : path
             addLog("\(ok ? "✓" : "✗") \(short)", level: ok ? .ok : .warn)
         }
         if isIOS18 {
-            let tokenJson = Self.makeTokenJson(featureToken: featureToken, licKey: licKey)
+            let tokenJson = Self.makeTokenJson(featureToken: capturedToken, licKey: capturedKey)
             let extraResults = Self.writeTokenIOS18Extra(tokenJson: tokenJson, bundleID: gameBundleID)
             for (path, ok) in extraResults {
                 let short = path.count > 48 ? "..." + path.suffix(45) : path
@@ -925,22 +966,24 @@ final class FreefireESPStore: ObservableObject {
             }
         }
 
-        let capturedDocs = docsPath
-        await MainActor.run { self.injectProgress = 0.42; self.injectPhaseLabel = "Đang tiến hành inject..." }
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global(qos: .background).async {
-                CheatInjectService.generateDecoyFiles(in: capturedDocs) { progress in
-                    let total = 0.42 + progress * 0.58
-                    Task { @MainActor [weak self] in
-                        self?.injectProgress = total
-                        self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+        // ── PATH B: generate decoys sau (nếu < 100k) ─────────────────────
+        if !needsDecoysFirst {
+            await MainActor.run { self.injectProgress = 0.42; self.injectPhaseLabel = "Đang tiến hành inject..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.generateDecoyFiles(in: capturedDocs) { progress in
+                        let total = 0.42 + progress * 0.58
+                        Task { @MainActor [weak self] in
+                            self?.injectProgress = total
+                            self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+                        }
                     }
+                    cont.resume()
                 }
-                cont.resume()
             }
         }
 
-        let tokenPath = (docsPath as NSString).appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.tok")
+        let tokenPath = (capturedDocs as NSString).appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.tok")
         let tokenExists = fm.fileExists(atPath: tokenPath)
         addLog("Auth token tại game container: \(tokenExists ? "Tồn tại ✓" : "Không tồn tại ✗")",
                level: tokenExists ? .ok : .err)
