@@ -102,11 +102,11 @@ enum PatchHubService {
         0x38, 0x65, 0x28, 0x23, 0x2E, 0x2A, 0x3F, 0x22, 0x24, 0x38, 0x3D, 0x22, 0x3B, 0x65,
         0x25, 0x2E, 0x3F
     ]
-    // CLIENT_TOKEN: aa15c20b95c22b8d4a924fb6e8cf88d711
+    // CLIENT_TOKEN: aa15c20b95c22b8d4a924fb6e8cf88d711111122
     private static let _t: [UInt8] = [
         0x2A, 0x2A, 0x7A, 0x7E, 0x28, 0x79, 0x7B, 0x29, 0x72, 0x7E, 0x28, 0x79, 0x79, 0x29,
         0x73, 0x2F, 0x7F, 0x2A, 0x72, 0x79, 0x7F, 0x2D, 0x29, 0x7D, 0x2E, 0x73, 0x28, 0x2D,
-        0x73, 0x73, 0x2F, 0x7C, 0x7A, 0x7A
+        0x73, 0x73, 0x2F, 0x7C, 0x7A, 0x7A, 0x7A, 0x7A, 0x7A, 0x7A, 0x79, 0x79
     ]
     // API paths (obfuscated)
     private static let _g:  [UInt8] = [0x3D, 0x7F, 0x33, 0x64, 0x38, 0x2C]                                                                             // v4x/sg
@@ -125,6 +125,8 @@ enum PatchHubService {
     private static let _gn: [UInt8] = [0x64, 0x2A, 0x3B, 0x22, 0x64, 0x2C, 0x2A, 0x26, 0x2E, 0x66, 0x25, 0x24, 0x3F, 0x22, 0x28, 0x2E, 0x38]       // api/game-notices
     private static let _r:  [UInt8] = [0x2A, 0x3B, 0x22, 0x64, 0x3D, 0x79, 0x64, 0x20, 0x2E, 0x32, 0x38, 0x64, 0x39, 0x2E, 0x2F, 0x2E, 0x2E, 0x26]  // api/v2/keys/redeem
     private static let _s:  [UInt8] = [0x2A, 0x3B, 0x22, 0x64, 0x3D, 0x79, 0x64, 0x20, 0x2E, 0x32, 0x38, 0x64, 0x38, 0x3F, 0x2A, 0x3F, 0x3E, 0x38]  // api/v2/keys/status
+    // api/v2/key-ping
+    private static let _kp: [UInt8] = [0x2A, 0x3B, 0x22, 0x64, 0x3D, 0x79, 0x64, 0x20, 0x2E, 0x32, 0x66, 0x3B, 0x22, 0x25, 0x2C]
     // api/v2/patch-auth
     private static let _pauth: [UInt8] = [0x2A, 0x3B, 0x22, 0x64, 0x3D, 0x79, 0x64, 0x3B, 0x2A, 0x3F, 0x28, 0x23, 0x66, 0x2A, 0x3E, 0x3F, 0x23]
     // api/v2/app/ui-config
@@ -135,6 +137,22 @@ enum PatchHubService {
     private static let _lc: [UInt8] = [0x2A, 0x3B, 0x22, 0x64, 0x3D, 0x79, 0x64, 0x27, 0x24, 0x28, 0x2A, 0x27, 0x66, 0x28, 0x24, 0x25, 0x2D, 0x22, 0x2C]
     // api/v2/allowed-frameworks
     private static let _af: [UInt8] = [0x2A, 0x3B, 0x22, 0x64, 0x3D, 0x79, 0x64, 0x2A, 0x27, 0x27, 0x24, 0x3C, 0x2E, 0x2F, 0x66, 0x2D, 0x39, 0x2A, 0x26, 0x2E, 0x3C, 0x24, 0x39, 0x20, 0x38]
+    // esp-patch endpoint secret: rR1QEuJl63H2kdCacBvSf75YmzX4pbO8
+    private static let _epk: [UInt8] = [
+        0x39, 0x19, 0x7A, 0x1A, 0x0E, 0x3E, 0x01, 0x27, 0x7D, 0x78, 0x03, 0x79, 0x20, 0x2F,
+        0x08, 0x2A, 0x28, 0x09, 0x3D, 0x18, 0x2D, 0x7C, 0x7E, 0x12, 0x26, 0x31, 0x13, 0x7F,
+        0x3B, 0x29, 0x04, 0x73
+    ]
+    // local-config endpoint secret: Zm9zSDr548JxTMkIpiejv7Ns1XGaLYu2
+    private static let _cfk: [UInt8] = [
+        0x11, 0x26, 0x72, 0x31, 0x18, 0x0F, 0x39, 0x7E, 0x7F, 0x73, 0x01, 0x33, 0x1F, 0x06,
+        0x20, 0x02, 0x3B, 0x22, 0x2E, 0x21, 0x3D, 0x7C, 0x05, 0x38, 0x7A, 0x13, 0x0C, 0x2A,
+        0x07, 0x12, 0x3E, 0x79
+    ]
+    // X-Esp-Key
+    private static let _hepk: [UInt8] = [0x13, 0x66, 0x0E, 0x38, 0x3B, 0x66, 0x00, 0x2E, 0x32]
+    // X-Cfg-Key
+    private static let _hcfk: [UInt8] = [0x13, 0x66, 0x08, 0x2D, 0x2C, 0x66, 0x00, 0x2E, 0x32]
     // HMAC signing secret: D5W_hmac_sig_v2_9mQx7nR4pLk8
     private static let _sk: [UInt8] = [
         0x0F, 0x7E, 0x1C, 0x14, 0x23, 0x26, 0x2A, 0x28, 0x14, 0x38, 0x22, 0x2C, 0x14, 0x3D,
@@ -173,6 +191,7 @@ enum PatchHubService {
     static var pathRedeem: String      { d(_r) }
     static var pathStatus: String      { d(_s) }
     static var pathGameNotices: String { d(_gn) }
+    static var pathKeyPing: String      { d(_kp) }
     static var pathPatchAuth: String   { d(_pauth) }
     static var pathUIConfig: String    { d(_uic) }
     static var pathEspPatch: String          { d(_ep) }
@@ -282,7 +301,9 @@ enum PatchHubService {
 
     static func fetchEspPatch() async -> Data? {
         let url = baseURL.appendingPathComponent(pathEspPatch)
-        guard let (data, response) = try? await PinnedSession.shared.data(for: get(url)),
+        var req = get(url)
+        req.setValue(d(_epk), forHTTPHeaderField: d(_hepk))
+        guard let (data, response) = try? await PinnedSession.shared.data(for: req),
               let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode),
               !data.isEmpty else { return nil }
@@ -291,7 +312,9 @@ enum PatchHubService {
 
     static func fetchLocalConfig() async -> Data? {
         let url = baseURL.appendingPathComponent(pathLocalConfig)
-        guard let (data, response) = try? await PinnedSession.shared.data(for: get(url)),
+        var req = get(url)
+        req.setValue(d(_cfk), forHTTPHeaderField: d(_hcfk))
+        guard let (data, response) = try? await PinnedSession.shared.data(for: req),
               let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode),
               !data.isEmpty else { return nil }
@@ -475,6 +498,51 @@ enum PatchHubService {
         struct Envelope: Decodable { let profiles: [DNSProfile]; let notice: String? }
         let env = (try? JSONDecoder().decode(Envelope.self, from: data))
         return (env?.profiles ?? [], env?.notice)
+    }
+
+    /// Lightweight server reachability check — returns true if server responds with any HTTP status.
+    /// Returns false only on complete network failure / timeout (no response at all).
+    static func pingServer() async -> Bool {
+        let url = baseURL.appendingPathComponent(pathContact)
+        var req = URLRequest(url: url, timeoutInterval: 6)
+        req.httpMethod = "GET"
+        req.setValue(clientToken, forHTTPHeaderField: d(_hat))
+        if let (_, response) = try? await PinnedSession.shared.data(for: req),
+           let http = response as? HTTPURLResponse {
+            return http.statusCode > 0
+        }
+        // Fallback without cert pinning (in case pinning itself fails)
+        if let (_, response) = try? await URLSession.shared.data(for: req),
+           let http = response as? HTTPURLResponse {
+            return http.statusCode > 0
+        }
+        return false
+    }
+
+    /// POST /api/v2/key-ping — checks key exists in v2 store and is still valid.
+    /// Returns true on success, false on any error/expired/invalid response.
+    static func fetchKeyPing(licenseKey: String, deviceId: String) async -> Bool {
+        let url = baseURL.appendingPathComponent(pathKeyPing)
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(clientToken, forHTTPHeaderField: d(_hat))
+        let ts = String(Int64(Date().timeIntervalSince1970 * 1000))
+        let nonce = UUID().uuidString
+        let code = licenseKey.uppercased()
+        let payload = "\(ts):\(nonce):\(code):\(deviceId)"
+        let secret = d(_sk)
+        let symKey = SymmetricKey(data: Data(secret.utf8))
+        let mac = HMAC<SHA256>.authenticationCode(for: Data(payload.utf8), using: symKey)
+        let sig = Data(mac).map { String(format: "%02x", $0) }.joined()
+        let body: [String: String] = ["key": code, "deviceId": deviceId, "ts": ts, "nonce": nonce, "sig": sig]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        guard let (data, response) = try? await PinnedSession.shared.data(for: req),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              verifyResponse(data: data, httpResponse: http),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["ok"] as? Bool == true else { return false }
+        return true
     }
 
     @discardableResult
