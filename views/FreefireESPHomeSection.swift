@@ -474,16 +474,18 @@ struct FreefireESPHomeSection: View {
                     .foregroundStyle(Color(white: 0.45))
             }
             Spacer()
-            Button { showV2LogSheet = true } label: {
-                Text("Xem log")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(Color(red: 0.20, green: 0.20, blue: 0.26))
-                    .clipShape(Capsule())
-                    .overlay(Capsule().strokeBorder(orange.opacity(0.40), lineWidth: 1))
+            if store.antiBanV2Enabled {
+                Button { showV2LogSheet = true } label: {
+                    Text("Xem log")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(Color(red: 0.20, green: 0.20, blue: 0.26))
+                        .clipShape(Capsule())
+                        .overlay(Capsule().strokeBorder(orange.opacity(0.40), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             Button {
                 if store.antiBanV2Enabled { store.disableAntiBanV2() } else { store.enableAntiBanV2() }
             } label: {
