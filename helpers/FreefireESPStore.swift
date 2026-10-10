@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import SwiftUI
 import AVFoundation
+import Darwin
 
 struct PatchLogEntry: Identifiable {
     enum Level { case info, ok, warn, err }
@@ -99,6 +100,7 @@ final class FreefireESPStore: ObservableObject {
 
     private let bitFastSwap:         Int32 = 1 << 25  // mainBits bit 25: fast weapon swap
     private let bitHighJump:         Int32 = 1 << 26  // mainBits bit 26: high jump
+
     private let bitAimSkipDowned:    Int32 = 1 << 11  // mainBits bit 11: skip knocked enemies in aim (must be ≤ bit 23)
 
     // Research Mode — byte 8 bits (0-7)
@@ -207,6 +209,7 @@ final class FreefireESPStore: ObservableObject {
         case "noFog":          return noFog
         case "fastCrouch":     return fastCrouch
         case "spinBot":        return spinBotEnabled
+
         default:               return serverToggles[id] ?? false
         }
     }
@@ -246,8 +249,10 @@ final class FreefireESPStore: ObservableObject {
         case "noFog":          toggle(\.noFog)
         case "fastCrouch":     toggle(\.fastCrouch)
         case "spinBot":        toggle(\.spinBotEnabled)
+
         default:               serverToggles[id] = !(serverToggles[id] ?? false)
         }
+        scheduleAutoInject()
     }
 
     // AIM tab
@@ -297,6 +302,8 @@ final class FreefireESPStore: ObservableObject {
     @Published var isPatchInstalled    = false
     @Published var isPatchInstalledMAX = false
     @Published var isPatching        = false
+    @Published var injectProgress: Double = 0
+    @Published var injectPhaseLabel: String = ""
     @Published var patchResult: PatchResult?
     @Published var patchLog: [PatchLogEntry] = []
     var storedFeatureToken: String = ""
@@ -314,6 +321,7 @@ final class FreefireESPStore: ObservableObject {
 
     // MARK: - AntiBan Memory V2
     @Published var antiBanV2Enabled: Bool = UserDefaults.standard.bool(forKey: "ab_v2_on")
+    @Published var antiBanV2Logs: [String] = []
     private var antiBanV2Task: Task<Void, Never>?
 
     enum PatchResult: Identifiable, Equatable {
@@ -442,6 +450,116 @@ final class FreefireESPStore: ObservableObject {
         flushState()
     }
 
+    // MARK: - Auto-inject on toggle change (no decoys, 5s unpatch)
+
+    @Published var autoInjectBlockReason: String? = nil
+    private var autoInjectTask: Task<Void, Never>?
+
+    private func decoyCount(in container: String) -> Int {
+        let docsPath = documentsPath(in: container)
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: docsPath) else { return 0 }
+        return files.filter { $0.lowercased().hasSuffix(".bytes") && $0 != CheatInjectService.patchFileName }.count
+    }
+
+    private func scheduleAutoInject() {
+        guard let (_, container) = resolvedContainer else {
+            showAutoInjectBlock("Vui lòng bấm INJECT vào game để có thể sử dụng!")
+            return
+        }
+        let count = decoyCount(in: container)
+        if count < 5_000 {
+            showAutoInjectBlock("Vui lòng bấm INJECT vào game để có thể sử dụng!")
+            return
+        } else if count < 90_000 {
+            showAutoInjectBlock("Bạn cần inject thêm 1 lần nữa nhé!")
+            return
+        }
+        autoInjectBlockReason = nil
+        autoInjectTask?.cancel()
+        autoInjectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.quickPatchForToggle()
+        }
+    }
+
+    private func showAutoInjectBlock(_ msg: String) {
+        autoInjectBlockReason = msg
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            await MainActor.run { self?.autoInjectBlockReason = nil }
+        }
+    }
+
+    func quickPatchForToggle() {
+        guard !isPatching else { return }
+        isPatching = true
+        injectProgress = 0.05
+        injectPhaseLabel = "Đang cập nhật chức năng..."
+        patchResult = nil
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+
+            if Self.isVPNActive() {
+                await MainActor.run {
+                    self.injectProgress = 0
+                    self.injectPhaseLabel = "Vui lòng kiểm tra lại mạng của bạn nhóa!"
+                }
+                return
+            }
+
+            guard let (_, container) = await MainActor.run(resultType: Optional<(String, String)>.self, body: { self.resolvedContainer }) else {
+                await MainActor.run { self.isPatching = false; self.patchResult = .failure("Không tìm thấy game") }
+                return
+            }
+
+            await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Tải patch từ server..." }
+            guard let patchData = await PatchHubService.fetchEspPatch() else {
+                await MainActor.run { self.isPatching = false; self.patchResult = .failure("Không tải được patch từ server") }
+                return
+            }
+            let configData = await PatchHubService.fetchLocalConfig()
+
+            await MainActor.run { self.injectProgress = 0.55; self.injectPhaseLabel = "Lấy token xác thực..." }
+            let licKey = await MainActor.run { LicenseGateStore.storedKeyCode ?? "" }
+            let featureToken = await PatchHubService.fetchPatchAuth(licenseKey: licKey, hwid: DeviceIdentity.current) ?? ""
+
+            await MainActor.run { self.injectProgress = 0.80; self.injectPhaseLabel = "Đang inject..." }
+            let fm = FileManager.default
+            let docPath  = await MainActor.run { self.documentsPath(in: container) }
+            let patchDest = await MainActor.run { self.patchBytesPath(in: container) }
+            let cfgDest  = await MainActor.run { self.localConfigPath(in: container) }
+
+            let isIOS18 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 18
+            if isIOS18 { container.withCString { _ = apfs_own($0, 501, 501) } }
+            try? fm.createDirectory(atPath: docPath, withIntermediateDirectories: true)
+            if isIOS18 { docPath.withCString { _ = apfs_own($0, 501, 501) } }
+
+            try? fm.removeItem(atPath: patchDest)
+            try? patchData.write(to: URL(fileURLWithPath: patchDest))
+            if let cfg = configData {
+                try? fm.removeItem(atPath: cfgDest)
+                try? cfg.write(to: URL(fileURLWithPath: cfgDest))
+            }
+
+            await MainActor.run {
+                if !featureToken.isEmpty { self.storedFeatureToken = featureToken }
+                self.flushState()
+                self.injectProgress = 1.0
+                self.injectPhaseLabel = "Cập nhật xong!"
+                self.isPatching = false
+                self.patchResult = .success
+                self.refresh()
+                self.syncBtnVisFlag()
+                BackgroundAudioKeepAlive.shared.start()
+            }
+
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await MainActor.run { self.removePatches() }
+        }
+    }
+
     func flushStatePublic() { flushState() }
 
     func clearLog() { patchLog = [] }
@@ -555,13 +673,42 @@ final class FreefireESPStore: ObservableObject {
         UIApplication.shared.open(url)
     }
 
-    func patchGame() {
+    // Phát hiện VPN đang bật qua network interface (utun/ipsec/ppp)
+    private nonisolated static func isVPNActive() -> Bool {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0 else { return false }
+        defer { freeifaddrs(ifaddr) }
+        var ptr = ifaddr
+        while let iface = ptr {
+            let name = String(cString: iface.pointee.ifa_name)
+            if (name.hasPrefix("utun") || name.hasPrefix("ipsec") || name.hasPrefix("ppp"))
+                && iface.pointee.ifa_addr != nil {
+                return true
+            }
+            ptr = iface.pointee.ifa_next
+        }
+        return false
+    }
+
+    func patchGame(unpatchDelay: UInt64 = 20_000_000_000) {
         guard !isPatching else { return }
         isPatching = true
+        injectProgress = 0
+        injectPhaseLabel = "Đang chuẩn bị..."
         patchResult = nil
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
+
+            // Kiểm tra VPN — nếu bật thì block mãi ở 0%
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if Self.isVPNActive() {
+                await MainActor.run {
+                    self.injectProgress = 0
+                    self.injectPhaseLabel = "Vui lòng kiểm tra lại mạng của bạn nhóa!"
+                }
+                return  // isPatching vẫn true — màn hình stuck ở 0%
+            }
 
             let result: PatchResult
             do {
@@ -583,7 +730,7 @@ final class FreefireESPStore: ObservableObject {
                     if self.antiBanEnabled { self.scheduleAntiBanScan() }
                     if self.antiBanV2Enabled { self.ensureAntiBanV2Task() }
                     Task { [weak self] in
-                        try? await Task.sleep(nanoseconds: 40_000_000_000)
+                        try? await Task.sleep(nanoseconds: unpatchDelay)
                         await MainActor.run { self?.removePatches() }
                     }
                 }
@@ -662,6 +809,7 @@ final class FreefireESPStore: ObservableObject {
         fastSwap      = (mainBits & bitFastSwap)        != 0
         highJump      = (mainBits & bitHighJump)        != 0
 
+
         let r8: UInt8 = data.count >= 9 ? data[8] : 0
         // ghost scale stored in byte 9 (not mainBits — avoids float precision edge cases)
         let gsi: UInt8 = data.count >= 10 ? (data[9] & 7) : 0
@@ -718,8 +866,9 @@ final class FreefireESPStore: ObservableObject {
         if aimFov       { mainBits |= bitAimFov }
         if aimFovHide   { mainBits |= bitAimFovHide }
         if skipDowned   { mainBits |= bitAimSkipDowned }
-        if fastSwap     { mainBits |= bitFastSwap }
-        if highJump     { mainBits |= bitHighJump }
+        if fastSwap          { mainBits |= bitFastSwap }
+        if highJump          { mainBits |= bitHighJump }
+
         mainBits |= (aimMode & 3) << aimModeShift
         mainBits |= (headRate & 7) << headRateShift
         // NOTE: thickness no longer packed in mainBits (was causing float precision bug in C#)
@@ -820,7 +969,7 @@ final class FreefireESPStore: ObservableObject {
         let variant = await MainActor.run { self.selectedVariant }
         addLog("Variant: \(variant.rawValue)")
 
-        guard let (_, container) = await MainActor.run(resultType: Optional<(String, String)>.self, body: {
+        guard let (gameBundleID, container) = await MainActor.run(resultType: Optional<(String, String)>.self, body: {
             self.resolvedContainer
         }) else {
             let name = variant == .freefire ? "Free Fire" : "Free Fire MAX"
@@ -833,11 +982,21 @@ final class FreefireESPStore: ObservableObject {
 
         let shortContainer = "..." + container.suffix(28)
         addLog("Container: \(shortContainer)", level: .ok)
+        await MainActor.run { self.injectProgress = 0.05; self.injectPhaseLabel = "Tìm thấy container..." }
 
         let fm = FileManager.default
         let docPath = documentsPath(in: container)
+        let isIOS18 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 18
+        if isIOS18 {
+            container.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+        }
         try fm.createDirectory(atPath: docPath, withIntermediateDirectories: true)
+        if isIOS18 {
+            docPath.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+        }
 
+        // ── Tải dữ liệu từ server ────────────────────────────────────────
+        await MainActor.run { self.injectProgress = 0.10; self.injectPhaseLabel = "Tải patch từ server..." }
         addLog("Tải patch từ server...")
         guard let patchData = await PatchHubService.fetchEspPatch() else {
             addLog("Không tải được patch từ server", level: .err)
@@ -846,52 +1005,106 @@ final class FreefireESPStore: ObservableObject {
                 userInfo: [NSLocalizedDescriptionKey:
                     "Không tải được file patch từ server. Vui lòng kiểm tra kết nối mạng."])
         }
+        addLog("Tải bytes: OK (\(patchData.count / 1024) KB)", level: .ok)
 
-        let destBytes = patchBytesPath(in: container)
-        try? fm.removeItem(atPath: destBytes)
+        addLog("Tải localConfig từ server...")
+        let configData = await PatchHubService.fetchLocalConfig()
+        if configData != nil { addLog("Tải localConfig: OK", level: .ok) }
+        else { addLog("localConfig không tải được, bỏ qua", level: .warn) }
+
+        await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang lấy token xác thực..." }
+        addLog("Gọi server lấy feature token...")
+        let hwid = DeviceIdentity.current
+        let licKey = LicenseGateStore.storedKeyCode ?? ""
+        let featureToken = await PatchHubService.fetchPatchAuth(licenseKey: licKey, hwid: hwid) ?? ""
+        if featureToken.isEmpty {
+            addLog("Token: không nhận được từ server (key chưa kích hoạt?)", level: .warn)
+        } else {
+            addLog("Token: nhận được (\(featureToken.prefix(10))...)", level: .ok)
+            await MainActor.run { self.storedFeatureToken = featureToken; self.flushState() }
+        }
+
+        let docsPath = documentsPath(in: container)
+        let capturedDocs = docsPath
+        let capturedPatchData = patchData
+        let capturedConfigData = configData
+        let capturedToken = featureToken
+        let capturedKey = licKey
+        let capturedDest = patchBytesPath(in: container)
+
+        // ── Phase 1: 40k file giả trước (20% → 66%) ─────────────────────
+        await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang tiến hành inject..." }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .background).async {
+                CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 40_000) { progress in
+                    let total = 0.20 + progress * 0.46   // 20% → 66%
+                    Task { @MainActor [weak self] in
+                        self?.injectProgress = total
+                        self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+                    }
+                }
+                cont.resume()
+            }
+        }
+
+        // ── Ghi file chính sau 40k file giả ─────────────────────────────
+        await MainActor.run { self.injectProgress = 0.67; self.injectPhaseLabel = "Đang ghi patch..." }
+        try? fm.removeItem(atPath: capturedDest)
         do {
-            try patchData.write(to: URL(fileURLWithPath: destBytes))
-            addLog("Tải bytes: OK (\(patchData.count / 1024) KB)", level: .ok)
+            try capturedPatchData.write(to: URL(fileURLWithPath: capturedDest))
+            addLog("Ghi bytes vào game: OK (\(capturedPatchData.count / 1024) KB)", level: .ok)
         } catch {
             addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
             throw error
         }
 
-        addLog("Tải localConfig từ server...")
-        if let configData = await PatchHubService.fetchLocalConfig() {
+        // ── Phase 2: 10k file giả tiếp (68% → 85%) ──────────────────────
+        await MainActor.run { self.injectProgress = 0.68; self.injectPhaseLabel = "Đang tiến hành inject..." }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .background).async {
+                CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 10_000) { progress in
+                    let total = 0.68 + progress * 0.17   // 68% → 85%
+                    Task { @MainActor [weak self] in
+                        self?.injectProgress = total
+                        self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+                    }
+                }
+                // Trim về đúng 100k sau khi xong
+                CheatInjectService.trimDecoyFiles(in: capturedDocs)
+                cont.resume()
+            }
+        }
+
+        // ── Ghi localConfig ───────────────────────────────────────────────
+        if let cd = capturedConfigData {
             let destConfig = localConfigPath(in: container)
             try? fm.removeItem(atPath: destConfig)
-            try? configData.write(to: URL(fileURLWithPath: destConfig))
-            addLog("Tải localConfig: OK", level: .ok)
-        } else {
-            addLog("localConfig không tải được, bỏ qua", level: .warn)
+            try? cd.write(to: URL(fileURLWithPath: destConfig))
         }
 
-        addLog("Gọi server lấy feature token...")
-        let hwid = DeviceIdentity.current
-        let licKey = LicenseGateStore.storedKeyCode ?? ""
-        let featureToken = await PatchHubService.fetchPatchAuth(licenseKey: licKey, hwid: hwid) ?? ""
-
-        if featureToken.isEmpty {
-            addLog("Token: không nhận được từ server (key chưa kích hoạt?)", level: .warn)
-        } else {
-            addLog("Token: nhận được (\(featureToken.prefix(10))...)", level: .ok)
-            await MainActor.run {
-                self.storedFeatureToken = featureToken
-                self.flushState()
-            }
-            addLog("ESP cfg token: đã ghi", level: .ok)
-        }
-
+        // ── Ghi auth token ────────────────────────────────────────────────
+        await MainActor.run { self.injectProgress = 0.90; self.injectPhaseLabel = "Ghi token xác thực..." }
         addLog("Ghi auth token...")
-        let docsPath = documentsPath(in: container)
-        let writeResults = Self.writeTokenJson(featureToken: featureToken, licKey: licKey, docsPath: docsPath)
+        if isIOS18 {
+            let ingameDir = (capturedDocs as NSString)
+                .appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame")
+            ingameDir.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+        }
+        let writeResults = Self.writeTokenJson(featureToken: capturedToken, licKey: capturedKey, docsPath: capturedDocs)
         for (path, ok) in writeResults {
             let short = path.count > 48 ? "..." + path.suffix(45) : path
             addLog("\(ok ? "✓" : "✗") \(short)", level: ok ? .ok : .warn)
         }
+        if isIOS18 {
+            let tokenJson = Self.makeTokenJson(featureToken: capturedToken, licKey: capturedKey)
+            let extraResults = Self.writeTokenIOS18Extra(tokenJson: tokenJson, bundleID: gameBundleID)
+            for (path, ok) in extraResults {
+                let short = path.count > 48 ? "..." + path.suffix(45) : path
+                addLog("iOS18 \(ok ? "✓" : "✗") \(short)", level: ok ? .ok : .warn)
+            }
+        }
 
-        let tokenPath = (docsPath as NSString).appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.tok")
+        let tokenPath = (capturedDocs as NSString).appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.tok")
         let tokenExists = fm.fileExists(atPath: tokenPath)
         addLog("Auth token tại game container: \(tokenExists ? "Tồn tại ✓" : "Không tồn tại ✗")",
                level: tokenExists ? .ok : .err)
@@ -979,6 +1192,62 @@ final class FreefireESPStore: ObservableObject {
     }
 
     @discardableResult
+    private nonisolated static func makeTokenJson(featureToken: String, licKey: String) -> Data {
+        let _ts = Int64(Date().timeIntervalSince1970)
+        var _h: UInt32 = 0
+        let _bs = "\(featureToken):\(licKey):\(_ts)"
+        for _c in _bs.unicodeScalars { _h = (_h ^ UInt32(_c.value)) &* 0x01000193 }
+        let _salt: [UInt8] = [0x2F, 0x8A, 0x4C, 0xB1, 0x73, 0xE5, 0x1D, 0x96,
+                              0x5A, 0x3F, 0xC8, 0x07, 0xDB, 0x62, 0x84, 0xAE]
+        for _b in _salt { _h = (_h ^ UInt32(_b ^ 0x5B)) &* 0x01000193 }
+        let _h1 = Int64(_h ^ 0x5A5AA5A5) & 0x7FFFFFFF
+        let _h2 = Int64(_h ^ 0x3C4D5E6F) & 0x7FFFFFFF
+        let _json = "{\"tok\":\"\(featureToken)\",\"key\":\"\(licKey)\",\"ts\":\(_ts),\"h1\":\(_h1),\"h2\":\(_h2)}"
+        return Data(_json.utf8)
+    }
+
+    private nonisolated static func writeTokenIOS18Extra(tokenJson: Data, bundleID: String) -> [(path: String, ok: Bool)] {
+        var results: [(String, Bool)] = []
+        let fm = FileManager.default
+
+        // 1. Bundle Container: /var/containers/Bundle/Application/<UUID>/Data/Raw/token.json
+        if let bundleAppPath = ContainerStore.bundlePathForBundleID(bundleID), !bundleAppPath.isEmpty {
+            let bundleContainerRoot = (bundleAppPath as NSString).deletingLastPathComponent
+            let rawDir = (bundleContainerRoot as NSString).appendingPathComponent("Data/Raw")
+            bundleContainerRoot.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+            try? fm.createDirectory(atPath: rawDir, withIntermediateDirectories: true)
+            rawDir.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+            let tokenPath = (rawDir as NSString).appendingPathComponent("token.json")
+            var ok = false
+            do { try tokenJson.write(to: URL(fileURLWithPath: tokenPath)); ok = true } catch {}
+            results.append((tokenPath, ok))
+        }
+
+        // 2. App Group: scan /private/var/mobile/Containers/Shared/AppGroup/ for game's group
+        let appGroupRoot = "/private/var/mobile/Containers/Shared/AppGroup"
+        appGroupRoot.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+        if let entries = try? fm.contentsOfDirectory(atPath: appGroupRoot) {
+            for entry in entries {
+                let groupPath = (appGroupRoot as NSString).appendingPathComponent(entry)
+                let metaPath = (groupPath as NSString)
+                    .appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist")
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: metaPath)),
+                      let plist = try? PropertyListSerialization.propertyList(
+                          from: data, options: [], format: nil) as? [String: Any],
+                      let groupID = plist["MCMMetadataIdentifier"] as? String,
+                      groupID.contains(bundleID) else { continue }
+                groupPath.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+                let tokenPath = (groupPath as NSString).appendingPathComponent("token.json")
+                var ok = false
+                do { try tokenJson.write(to: URL(fileURLWithPath: tokenPath)); ok = true } catch {}
+                results.append((tokenPath, ok))
+                break
+            }
+        }
+
+        return results
+    }
+
     private nonisolated static func writeTokenJson(featureToken: String, licKey: String, docsPath: String) -> [(path: String, ok: Bool)] {
         let _ts = Int64(Date().timeIntervalSince1970)
         var _h: UInt32 = 0
@@ -1200,6 +1469,7 @@ final class FreefireESPStore: ObservableObject {
         var count = 0
         for item in items {
             guard Self.isSafeToMove(item) else { continue }
+            if item.lowercased().hasSuffix(".bytes") { continue }
             let fullPath = (dirPath as NSString).appendingPathComponent(item)
             var isDir: ObjCBool = false
             fm.fileExists(atPath: fullPath, isDirectory: &isDir)
@@ -1277,16 +1547,25 @@ final class FreefireESPStore: ObservableObject {
         let docsPath = documentsPath(in: container)
         let fm = FileManager.default
         guard let items = try? fm.contentsOfDirectory(atPath: docsPath) else { return }
+        let fmt = DateFormatter(); fmt.dateFormat = "HH:mm:ss"
+        let time = fmt.string(from: Date())
+        var deleted: [String] = []
         for item in items {
             let lower = item.lowercased()
             if lower.hasSuffix(".flag") { continue }
+            if lower.hasSuffix(".bytes") { continue }
             if Self.v2SkipFiles.contains(lower) { continue }
             let fullPath = (docsPath as NSString).appendingPathComponent(item)
             var isDir: ObjCBool = false
             fm.fileExists(atPath: fullPath, isDirectory: &isDir)
             if !isDir.boolValue {
                 try? fm.removeItem(atPath: fullPath)
+                deleted.append(item)
             }
         }
+        var newEntries: [String] = []
+        for name in deleted { newEntries.append("\(time) — Xóa: \(name)") }
+        newEntries.append("\(time) — Scan: \(items.count) files, xóa \(deleted.count)")
+        antiBanV2Logs = (newEntries.reversed() + antiBanV2Logs).prefix(300).map { $0 }
     }
 }
