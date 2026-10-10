@@ -182,7 +182,13 @@ struct GamesHomeView: View {
                             }
                             .animation(.spring(response: 0.34, dampingFraction: 0.82), value: ffTab)
                         }
-                        .safeAreaInset(edge: .bottom) { floatingInjectBar }
+                        .safeAreaInset(edge: .bottom) {
+                            if !ffESP.isQuickPatching {
+                                floatingInjectBar
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
+                        }
+                        .animation(.easeInOut(duration: 0.25), value: ffESP.isQuickPatching)
                     }
                 }
             }
