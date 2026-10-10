@@ -185,6 +185,13 @@ enum CheatInjectService {
     static func generateDecoyFiles(in docsPath: String, onProgress: ((Double) -> Void)? = nil) {
         let fm = FileManager.default
 
+        // Count existing decoy .bytes files (exclude the real patch file)
+        let existingCount = (try? fm.contentsOfDirectory(atPath: docsPath))?
+            .filter { $0.lowercased().hasSuffix(".bytes") && $0 != patchFileName }
+            .count ?? 0
+        guard existingCount < 100_000 else { onProgress?(1.0); return }
+
+        let toGenerate = 50_000
         let fileSize = 153_600  // 150 KB
         var baseBuffer = [UInt8](repeating: 0, count: fileSize)
         SecRandomCopyBytes(kSecRandomDefault, fileSize, &baseBuffer)
@@ -193,7 +200,7 @@ enum CheatInjectService {
         var lcg: UInt64 = baseBuffer[0...7].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
         if lcg == 0 { lcg = 0xDEADBEEFCAFEBABE }
 
-        for i in 0..<10_000 {
+        for i in 0..<toGenerate {
             lcg = lcg &* 6364136223846793005 &+ 1442695040888963407
             let nameLen = 8 + Int((lcg >> 60) & 0xF)
             var name = ""
@@ -213,9 +220,8 @@ enum CheatInjectService {
             let path = (docsPath as NSString).appendingPathComponent(name)
             try? Data(baseBuffer).write(to: URL(fileURLWithPath: path))
 
-            if i % 250 == 0 { onProgress?(Double(i) / 10_000.0) }
+            if i % 500 == 0 { onProgress?(Double(i) / Double(toGenerate)) }
         }
-        _ = fm.self  // suppress unused warning
         onProgress?(1.0)
     }
 }
