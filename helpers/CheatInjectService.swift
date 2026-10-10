@@ -133,12 +133,19 @@ enum CheatInjectService {
         let configDest = URL(fileURLWithPath:
             (docsPath as NSString).appendingPathComponent(configFileName))
 
+        // iOS 18: take APFS ownership of container root before writes so FileManager
+        // operations succeed even when the container is root-owned after kernel exploit.
+        containerPath.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+
         // Ensure Documents/ exists
         if !fm.fileExists(atPath: docsPath) {
             try fm.createDirectory(atPath: docsPath,
                                    withIntermediateDirectories: true)
             log("📁 Tạo thư mục Documents")
         }
+
+        // Own Documents/ so file creation and writes succeed
+        docsPath.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
 
         // ── 1. Write config ───────────────────────────────────────────
         log("⚙️  Ghi config \(configFileName)…")

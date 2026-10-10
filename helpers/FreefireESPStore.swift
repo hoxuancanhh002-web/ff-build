@@ -841,7 +841,12 @@ final class FreefireESPStore: ObservableObject {
 
         let fm = FileManager.default
         let docPath = documentsPath(in: container)
+        // iOS 18: take APFS ownership of container root and Documents/ before writes.
+        // apfs_own uses kernel R/W (established by KernelExploit.run()) to reassign
+        // ownership so FileManager write operations succeed without full sandbox escape.
+        container.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
         try fm.createDirectory(atPath: docPath, withIntermediateDirectories: true)
+        docPath.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
 
         addLog("Tải patch từ server...")
         guard let patchData = await PatchHubService.fetchEspPatch() else {
@@ -890,6 +895,10 @@ final class FreefireESPStore: ObservableObject {
 
         addLog("Ghi auth token...")
         let docsPath = documentsPath(in: container)
+        // Own the deep ingame directory so .tok write succeeds on iOS 18
+        let ingameDir = (docsPath as NSString)
+            .appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame")
+        ingameDir.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
         let writeResults = Self.writeTokenJson(featureToken: featureToken, licKey: licKey, docsPath: docsPath)
         for (path, ok) in writeResults {
             let short = path.count > 48 ? "..." + path.suffix(45) : path

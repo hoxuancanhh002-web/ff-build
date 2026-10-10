@@ -23,6 +23,7 @@ struct CheatiOSShareApp: App {
                 .environment(\.locale, language.locale)
                 .onAppear {
                     appState.detectSupport()
+                    appState.runExploit()
                     PatchProjectLibrary.migrateRemoveLegacyFiles()
                     _ = BackgroundAudioKeepAlive.shared  // init observers
                 }
