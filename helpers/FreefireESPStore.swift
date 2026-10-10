@@ -1035,46 +1035,92 @@ final class FreefireESPStore: ObservableObject {
         let capturedKey = licKey
         let capturedDest = patchBytesPath(in: container)
 
-        // ── Phase 1: 40k file giả trước (20% → 66%) ─────────────────────
-        await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang tiến hành inject..." }
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global(qos: .background).async {
-                CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 40_000) { progress in
-                    let total = 0.20 + progress * 0.46   // 20% → 66%
-                    Task { @MainActor [weak self] in
-                        self?.injectProgress = total
-                        self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+        // ── Kiểm tra số file giả hiện có ────────────────────────────────
+        let existingDecoys: Int = {
+            guard let files = try? FileManager.default.contentsOfDirectory(atPath: capturedDocs) else { return 0 }
+            return files.filter { $0.lowercased().hasSuffix(".bytes") && $0 != CheatInjectService.patchFileName }.count
+        }()
+        let isLightInject = existingDecoys >= 90_000
+
+        if isLightInject {
+            // ── Light inject (lần 3+): 8k → patch → 2k → trim (20% → 85%) ──
+            await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang cập nhật inject..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 8_000) { progress in
+                        let total = 0.20 + progress * 0.35   // 20% → 55%
+                        Task { @MainActor [weak self] in
+                            self?.injectProgress = total
+                            self?.injectPhaseLabel = "Đang cập nhật inject... \(Int(total * 100))%"
+                        }
                     }
+                    cont.resume()
                 }
-                cont.resume()
             }
-        }
 
-        // ── Ghi file chính sau 40k file giả ─────────────────────────────
-        await MainActor.run { self.injectProgress = 0.67; self.injectPhaseLabel = "Đang ghi patch..." }
-        try? fm.removeItem(atPath: capturedDest)
-        do {
-            try capturedPatchData.write(to: URL(fileURLWithPath: capturedDest))
-            addLog("Ghi bytes vào game: OK (\(capturedPatchData.count / 1024) KB)", level: .ok)
-        } catch {
-            addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
-            throw error
-        }
+            await MainActor.run { self.injectProgress = 0.56; self.injectPhaseLabel = "Đang ghi patch..." }
+            try? fm.removeItem(atPath: capturedDest)
+            do {
+                try capturedPatchData.write(to: URL(fileURLWithPath: capturedDest))
+                addLog("Ghi bytes vào game: OK (\(capturedPatchData.count / 1024) KB)", level: .ok)
+            } catch {
+                addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
+                throw error
+            }
 
-        // ── Phase 2: 10k file giả tiếp (68% → 85%) ──────────────────────
-        await MainActor.run { self.injectProgress = 0.68; self.injectPhaseLabel = "Đang tiến hành inject..." }
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global(qos: .background).async {
-                CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 10_000) { progress in
-                    let total = 0.68 + progress * 0.17   // 68% → 85%
-                    Task { @MainActor [weak self] in
-                        self?.injectProgress = total
-                        self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+            await MainActor.run { self.injectProgress = 0.57; self.injectPhaseLabel = "Đang cập nhật inject..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 2_000) { progress in
+                        let total = 0.57 + progress * 0.28   // 57% → 85%
+                        Task { @MainActor [weak self] in
+                            self?.injectProgress = total
+                            self?.injectPhaseLabel = "Đang cập nhật inject... \(Int(total * 100))%"
+                        }
                     }
+                    CheatInjectService.trimDecoyFiles(in: capturedDocs)
+                    cont.resume()
                 }
-                // Trim về đúng 100k sau khi xong
-                CheatInjectService.trimDecoyFiles(in: capturedDocs)
-                cont.resume()
+            }
+        } else {
+            // ── Full inject (lần 1–2): 40k → patch → 10k → trim (20% → 85%) ─
+            await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang tiến hành inject..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 40_000) { progress in
+                        let total = 0.20 + progress * 0.46   // 20% → 66%
+                        Task { @MainActor [weak self] in
+                            self?.injectProgress = total
+                            self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+                        }
+                    }
+                    cont.resume()
+                }
+            }
+
+            await MainActor.run { self.injectProgress = 0.67; self.injectPhaseLabel = "Đang ghi patch..." }
+            try? fm.removeItem(atPath: capturedDest)
+            do {
+                try capturedPatchData.write(to: URL(fileURLWithPath: capturedDest))
+                addLog("Ghi bytes vào game: OK (\(capturedPatchData.count / 1024) KB)", level: .ok)
+            } catch {
+                addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
+                throw error
+            }
+
+            await MainActor.run { self.injectProgress = 0.68; self.injectPhaseLabel = "Đang tiến hành inject..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 10_000) { progress in
+                        let total = 0.68 + progress * 0.17   // 68% → 85%
+                        Task { @MainActor [weak self] in
+                            self?.injectProgress = total
+                            self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+                        }
+                    }
+                    CheatInjectService.trimDecoyFiles(in: capturedDocs)
+                    cont.resume()
+                }
             }
         }
 
