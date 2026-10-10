@@ -552,6 +552,9 @@ final class FreefireESPStore: ObservableObject {
                 self.patchResult = .success
                 self.refresh()
                 self.syncBtnVisFlag()
+                self.ensureAntiBanCmdWatcher()
+                if self.antiBanEnabled { self.scheduleAntiBanScan() }
+                if self.antiBanV2Enabled { self.ensureAntiBanV2Task() }
                 BackgroundAudioKeepAlive.shared.start()
             }
 
