@@ -501,7 +501,7 @@ final class FreefireESPStore: ObservableObject {
     }
     private var autoInjectTask: Task<Void, Never>?
     private var quickPatchGeneration: Int = 0
-    private var isQuickPatching = false
+    @Published private(set) var isQuickPatching = false
     private var lastToggleInfo: (name: String, isOn: Bool)? = nil
     private var toggleToastTask: Task<Void, Never>?
 
@@ -688,6 +688,7 @@ final class FreefireESPStore: ObservableObject {
         case "spinBotSpeedIndex": spinBotSpeedIndex = max(0, min(300, Int(value))); flushStatePublic()
         default:              break
         }
+        scheduleAutoInject()
     }
 
     func removePatches() {
