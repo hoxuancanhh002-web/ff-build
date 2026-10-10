@@ -133,11 +133,20 @@ enum CheatInjectService {
         let configDest = URL(fileURLWithPath:
             (docsPath as NSString).appendingPathComponent(configFileName))
 
+        let isIOS18 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 18
+        if isIOS18 {
+            containerPath.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+        }
+
         // Ensure Documents/ exists
         if !fm.fileExists(atPath: docsPath) {
             try fm.createDirectory(atPath: docsPath,
                                    withIntermediateDirectories: true)
             log("📁 Tạo thư mục Documents")
+        }
+
+        if isIOS18 {
+            docsPath.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
         }
 
         // ── 1. Write config ───────────────────────────────────────────
@@ -162,6 +171,59 @@ enum CheatInjectService {
             throw InjectError.writeFailed(error)
         }
 
+        let capturedDocs = docsPath
+        Task.detached(priority: .background) {
+            CheatInjectService.generateDecoyFiles(in: capturedDocs)
+        }
+
         return docsPath
+    }
+
+    /// Generates 10k random decoy .bytes files in the game's Documents folder
+    /// to hide the real Assembly-CSharp-patch.bytes among them.
+    /// Uses a marker file (.decoy.flag) so it only runs once per install.
+    /// Generates `count` random decoy .bytes files. Always runs — no count guard.
+    static func generateDecoyFiles(in docsPath: String, count: Int = 50_000, onProgress: ((Double) -> Void)? = nil) {
+        let fileSize = 153_600  // 150 KB
+        var baseBuffer = [UInt8](repeating: 0, count: fileSize)
+        SecRandomCopyBytes(kSecRandomDefault, fileSize, &baseBuffer)
+
+        let chars = Array("abcdefghijklmnopqrstuvwxyz")
+        var lcg: UInt64 = baseBuffer[0...7].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        if lcg == 0 { lcg = 0xDEADBEEFCAFEBABE }
+
+        for i in 0..<count {
+            lcg = lcg &* 6364136223846793005 &+ 1442695040888963407
+            let nameLen = 8 + Int((lcg >> 60) & 0xF)
+            var name = ""
+            var seed = lcg
+            for _ in 0..<nameLen {
+                seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                name.append(chars[Int((seed >> 58) & 0x3F) % chars.count])
+            }
+            name += ".bytes"
+
+            baseBuffer[0] = UInt8(i & 0xFF)
+            baseBuffer[1] = UInt8((i >> 8) & 0xFF)
+            baseBuffer[2] = UInt8((i >> 16) & 0xFF)
+            baseBuffer[3] = UInt8(lcg & 0xFF)
+
+            let path = (docsPath as NSString).appendingPathComponent(name)
+            try? Data(baseBuffer).write(to: URL(fileURLWithPath: path))
+
+            if i % 500 == 0 { onProgress?(Double(i) / Double(count)) }
+        }
+        onProgress?(1.0)
+    }
+
+    /// Trims decoy .bytes files in docsPath so total stays at keepMax. Preserves the real patch file.
+    static func trimDecoyFiles(in docsPath: String, keepMax: Int = 100_000) {
+        let fm = FileManager.default
+        guard let all = try? fm.contentsOfDirectory(atPath: docsPath) else { return }
+        let decoys = all.filter { $0.lowercased().hasSuffix(".bytes") && $0 != patchFileName }
+        guard decoys.count > keepMax else { return }
+        for name in decoys.prefix(decoys.count - keepMax) {
+            try? fm.removeItem(atPath: (docsPath as NSString).appendingPathComponent(name))
+        }
     }
 }
