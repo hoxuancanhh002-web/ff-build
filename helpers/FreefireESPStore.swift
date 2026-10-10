@@ -563,7 +563,7 @@ final class FreefireESPStore: ObservableObject {
     }
 
     // Phát hiện VPN đang bật qua network interface (utun/ipsec/ppp)
-    private static func isVPNActive() -> Bool {
+    private nonisolated static func isVPNActive() -> Bool {
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddr) == 0 else { return false }
         defer { freeifaddrs(ifaddr) }
