@@ -30,6 +30,31 @@ final class LicenseGateStore: ObservableObject {
         return _unlockBuf[0] == (0xA5 ^ s[0])
     }
 
+    // Anti-bypass server gate — set ONLY by a real /api/v2/key-ping response.
+    // Same XOR+parity encoding as _unlockBuf so a memory hook must understand the scheme.
+    private static let _gateSalt: [UInt8] = [0x4C, 0xB7, 0x23, 0xE9]
+    private var _gateBuf: [UInt8] = LicenseGateStore._closedGateBuf()
+    private static func _closedGateBuf() -> [UInt8] {
+        let s = _gateSalt; return [s[0], s[1], s[2], s[0] ^ s[1] ^ s[2] ^ 0xD6]
+    }
+    private static func _openGateBuf() -> [UInt8] {
+        let s = _gateSalt
+        let b0: UInt8 = 0x5E ^ s[0]; let b1: UInt8 = 0x5E ^ s[1]; let b2: UInt8 = 0x5E ^ s[2]
+        return [b0, b1, b2, b0 ^ b1 ^ b2 ^ 0xD6]
+    }
+
+    func openServerGate() {
+        _gateBuf = Self._openGateBuf()
+    }
+
+    var isServerGateOpen: Bool {
+        let s = Self._gateSalt
+        guard _gateBuf.count == 4 else { return false }
+        let parity = _gateBuf[0] ^ _gateBuf[1] ^ _gateBuf[2] ^ 0xD6
+        guard parity == _gateBuf[3] else { return false }
+        return _gateBuf[0] == (0x5E ^ s[0])
+    }
+
     @Published private(set) var isChecking = true
     @Published private(set) var expiresAt: Date?
     @Published private(set) var licenseDevices: [LicenseDeviceEntry] = []
@@ -168,6 +193,7 @@ final class LicenseGateStore: ObservableObject {
         isSellerVip = false
         isUnlocked = false
         errorMessage = nil
+        _gateBuf = Self._closedGateBuf()
     }
 
     private func refreshStatus(code: String) async {
