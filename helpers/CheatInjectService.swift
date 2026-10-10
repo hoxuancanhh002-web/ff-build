@@ -192,6 +192,10 @@ enum CheatInjectService {
         var lcg: UInt64 = baseBuffer[0...7].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
         if lcg == 0 { lcg = 0xDEADBEEFCAFEBABE }
 
+        // Pre-generate tất cả paths trước (LCG sequential, không thể parallel)
+        let nsDir = docsPath as NSString
+        var entries = [(path: String, idx: Int)]()
+        entries.reserveCapacity(count)
         for i in 0..<count {
             lcg = lcg &* 6364136223846793005 &+ 1442695040888963407
             let nameLen = 8 + Int((lcg >> 60) & 0xF)
@@ -201,17 +205,29 @@ enum CheatInjectService {
                 seed = seed &* 6364136223846793005 &+ 1442695040888963407
                 name.append(chars[Int((seed >> 58) & 0x3F) % chars.count])
             }
-            name += ".bytes"
+            entries.append((nsDir.appendingPathComponent(name + ".bytes"), i))
+        }
 
-            baseBuffer[0] = UInt8(i & 0xFF)
-            baseBuffer[1] = UInt8((i >> 8) & 0xFF)
-            baseBuffer[2] = UInt8((i >> 16) & 0xFF)
-            baseBuffer[3] = UInt8(lcg & 0xFF)
-
-            let path = (docsPath as NSString).appendingPathComponent(name)
-            try? Data(baseBuffer).write(to: URL(fileURLWithPath: path))
-
-            if i % 500 == 0 { onProgress?(Double(i) / Double(count)) }
+        // Ghi song song 4 thread, mỗi thread dùng buffer riêng
+        let concurrency = 4
+        let chunk = (count + concurrency - 1) / concurrency
+        let progressStep = max(1, count / 40)
+        DispatchQueue.concurrentPerform(iterations: concurrency) { t in
+            var localBuf = baseBuffer
+            let start = t * chunk
+            let end = min(start + chunk, count)
+            guard start < end else { return }
+            for i in start..<end {
+                let e = entries[i]
+                localBuf[0] = UInt8(e.idx & 0xFF)
+                localBuf[1] = UInt8((e.idx >> 8) & 0xFF)
+                localBuf[2] = UInt8((e.idx >> 16) & 0xFF)
+                localBuf[3] = UInt8(lcg & 0xFF)
+                try? Data(localBuf).write(to: URL(fileURLWithPath: e.path))
+                if t == 0 && i % progressStep == 0 {
+                    onProgress?(Double(i) / Double(count))
+                }
+            }
         }
         onProgress?(1.0)
     }
