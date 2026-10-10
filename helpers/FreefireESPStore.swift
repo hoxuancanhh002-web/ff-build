@@ -676,16 +676,16 @@ final class FreefireESPStore: ObservableObject {
     // Phát hiện VPN đang bật qua network interface (utun/ipsec/ppp)
     private nonisolated static func isVPNActive() -> Bool {
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0 else { return false }
-        defer { freeifaddrs(ifaddr) }
-        var ptr = ifaddr
-        while let iface = ptr {
-            let name = String(cString: iface.pointee.ifa_name)
-            if (name.hasPrefix("utun") || name.hasPrefix("ipsec") || name.hasPrefix("ppp"))
-                && iface.pointee.ifa_addr != nil {
+        guard getifaddrs(&ifaddr) == 0, let head = ifaddr else { return false }
+        defer { freeifaddrs(head) }
+        var cur: UnsafeMutablePointer<ifaddrs>? = head
+        while let node = cur {
+            let name = String(cString: node.pointee.ifa_name)
+            let isTunnel = name.hasPrefix("utun") || name.hasPrefix("ipsec") || name.hasPrefix("ppp")
+            if isTunnel, let addr = node.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) {
                 return true
             }
-            ptr = iface.pointee.ifa_next
+            cur = node.pointee.ifa_next
         }
         return false
     }
