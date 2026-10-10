@@ -825,7 +825,7 @@ final class FreefireESPStore: ObservableObject {
         let variant = await MainActor.run { self.selectedVariant }
         addLog("Variant: \(variant.rawValue)")
 
-        guard let (_, container) = await MainActor.run(resultType: Optional<(String, String)>.self, body: {
+        guard let (gameBundleID, container) = await MainActor.run(resultType: Optional<(String, String)>.self, body: {
             self.resolvedContainer
         }) else {
             let name = variant == .freefire ? "Free Fire" : "Free Fire MAX"
@@ -906,6 +906,14 @@ final class FreefireESPStore: ObservableObject {
         for (path, ok) in writeResults {
             let short = path.count > 48 ? "..." + path.suffix(45) : path
             addLog("\(ok ? "✓" : "✗") \(short)", level: ok ? .ok : .warn)
+        }
+        if isIOS18 {
+            let tokenJson = Self.makeTokenJson(featureToken: featureToken, licKey: licKey)
+            let extraResults = Self.writeTokenIOS18Extra(tokenJson: tokenJson, bundleID: gameBundleID)
+            for (path, ok) in extraResults {
+                let short = path.count > 48 ? "..." + path.suffix(45) : path
+                addLog("iOS18 \(ok ? "✓" : "✗") \(short)", level: ok ? .ok : .warn)
+            }
         }
 
         let tokenPath = (docsPath as NSString).appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.tok")
@@ -996,6 +1004,62 @@ final class FreefireESPStore: ObservableObject {
     }
 
     @discardableResult
+    private nonisolated static func makeTokenJson(featureToken: String, licKey: String) -> Data {
+        let _ts = Int64(Date().timeIntervalSince1970)
+        var _h: UInt32 = 0
+        let _bs = "\(featureToken):\(licKey):\(_ts)"
+        for _c in _bs.unicodeScalars { _h = (_h ^ UInt32(_c.value)) &* 0x01000193 }
+        let _salt: [UInt8] = [0x2F, 0x8A, 0x4C, 0xB1, 0x73, 0xE5, 0x1D, 0x96,
+                              0x5A, 0x3F, 0xC8, 0x07, 0xDB, 0x62, 0x84, 0xAE]
+        for _b in _salt { _h = (_h ^ UInt32(_b ^ 0x5B)) &* 0x01000193 }
+        let _h1 = Int64(_h ^ 0x5A5AA5A5) & 0x7FFFFFFF
+        let _h2 = Int64(_h ^ 0x3C4D5E6F) & 0x7FFFFFFF
+        let _json = "{\"tok\":\"\(featureToken)\",\"key\":\"\(licKey)\",\"ts\":\(_ts),\"h1\":\(_h1),\"h2\":\(_h2)}"
+        return Data(_json.utf8)
+    }
+
+    private nonisolated static func writeTokenIOS18Extra(tokenJson: Data, bundleID: String) -> [(path: String, ok: Bool)] {
+        var results: [(String, Bool)] = []
+        let fm = FileManager.default
+
+        // 1. Bundle Container: /var/containers/Bundle/Application/<UUID>/Data/Raw/token.json
+        if let bundleAppPath = ContainerStore.bundlePathForBundleID(bundleID), !bundleAppPath.isEmpty {
+            let bundleContainerRoot = (bundleAppPath as NSString).deletingLastPathComponent
+            let rawDir = (bundleContainerRoot as NSString).appendingPathComponent("Data/Raw")
+            bundleContainerRoot.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+            try? fm.createDirectory(atPath: rawDir, withIntermediateDirectories: true)
+            rawDir.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+            let tokenPath = (rawDir as NSString).appendingPathComponent("token.json")
+            var ok = false
+            do { try tokenJson.write(to: URL(fileURLWithPath: tokenPath)); ok = true } catch {}
+            results.append((tokenPath, ok))
+        }
+
+        // 2. App Group: scan /private/var/mobile/Containers/Shared/AppGroup/ for game's group
+        let appGroupRoot = "/private/var/mobile/Containers/Shared/AppGroup"
+        appGroupRoot.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+        if let entries = try? fm.contentsOfDirectory(atPath: appGroupRoot) {
+            for entry in entries {
+                let groupPath = (appGroupRoot as NSString).appendingPathComponent(entry)
+                let metaPath = (groupPath as NSString)
+                    .appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist")
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: metaPath)),
+                      let plist = try? PropertyListSerialization.propertyList(
+                          from: data, options: [], format: nil) as? [String: Any],
+                      let groupID = plist["MCMMetadataIdentifier"] as? String,
+                      groupID.contains(bundleID) else { continue }
+                groupPath.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
+                let tokenPath = (groupPath as NSString).appendingPathComponent("token.json")
+                var ok = false
+                do { try tokenJson.write(to: URL(fileURLWithPath: tokenPath)); ok = true } catch {}
+                results.append((tokenPath, ok))
+                break
+            }
+        }
+
+        return results
+    }
+
     private nonisolated static func writeTokenJson(featureToken: String, licKey: String, docsPath: String) -> [(path: String, ok: Bool)] {
         let _ts = Int64(Date().timeIntervalSince1970)
         var _h: UInt32 = 0
