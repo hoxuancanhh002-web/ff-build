@@ -5,8 +5,15 @@ import SafariServices
 
 struct FreefireESPHomeSection: View {
     @ObservedObject var store: FreefireESPStore
+    @EnvironmentObject private var appState: AppState
     /// 0 = Home (status + patch), 1 = ESP/AIM, 2 = Misc (settings)
     var tab: Int = 0
+
+    private var isWaitingForExploit: Bool {
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 18
+            && !appState.exploitStatus.isSuccess
+            && appState.isSupported
+    }
 
     @State private var statCPU: Int = 0
     @State private var statRAMPct: Int = 0
@@ -24,6 +31,7 @@ struct FreefireESPHomeSection: View {
     @State private var showPatchErrorSheet = false
     @State private var patchErrorMsg = ""
     @State private var showAntiBanInfoSheet = false
+    @State private var showV2LogSheet = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -295,13 +303,14 @@ struct FreefireESPHomeSection: View {
                 .buttonStyle(PressScaleButtonStyle())
             } else {
                 // INJECT button (green, full width)
+                let isBusy = store.isPatching || isWaitingForExploit
                 Button { store.patchGame() } label: {
                     HStack(spacing: 12) {
                         ZStack {
                             Circle()
-                                .fill(Color.white.opacity(store.isPatching ? 0.10 : 0.18))
+                                .fill(Color.white.opacity(isBusy ? 0.10 : 0.18))
                                 .frame(width: 38, height: 38)
-                            if store.isPatching {
+                            if isBusy {
                                 ProgressView().scaleEffect(0.85).tint(.white)
                             } else {
                                 Image(systemName: "bolt.fill")
@@ -309,13 +318,13 @@ struct FreefireESPHomeSection: View {
                             }
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(store.isPatching ? "ĐANG INJECT..." : "INJECT (\(variantLabel))")
+                            Text(store.isPatching ? "ĐANG INJECT..." : isWaitingForExploit ? "ĐANG CHUẨN BỊ..." : "INJECT (\(variantLabel))")
                                 .font(.system(size: 13, weight: .heavy)).foregroundStyle(.white).kerning15(0.4)
-                            Text(store.isPatching ? "Vui lòng chờ..." : "Bắt đầu kích hoạt chức năng")
+                            Text(store.isPatching ? "Vui lòng chờ..." : isWaitingForExploit ? "Đang khởi động kernel (iOS 18)..." : "Bắt đầu kích hoạt chức năng")
                                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.70))
                         }
                         Spacer()
-                        if !store.isPatching {
+                        if !isBusy {
                             Image(systemName: "bolt.fill")
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.55))
@@ -323,18 +332,18 @@ struct FreefireESPHomeSection: View {
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .background(
-                        store.isPatching
+                        isBusy
                             ? LinearGradient(colors: [Color(white: 0.12), Color(white: 0.10)], startPoint: .leading, endPoint: .trailing)
                             : LinearGradient(colors: [AppTheme.injectGreen, Color(red: 0.04, green: 0.55, blue: 0.28)], startPoint: .leading, endPoint: .trailing)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(store.isPatching ? Color.white.opacity(0.08) : AppTheme.injectGreen.opacity(0.50), lineWidth: 1.2))
-                    .shadow(color: store.isPatching ? .clear : AppTheme.injectGreen.opacity(0.40), radius: 16, y: 4)
+                        .strokeBorder(isBusy ? Color.white.opacity(0.08) : AppTheme.injectGreen.opacity(0.50), lineWidth: 1.2))
+                    .shadow(color: isBusy ? .clear : AppTheme.injectGreen.opacity(0.40), radius: 16, y: 4)
                 }
                 .buttonStyle(PressScaleButtonStyle())
-                .disabled(store.isPatching || detected == nil)
-                .opacity((detected == nil && !store.isPatching) ? 0.40 : 1.0)
+                .disabled(isBusy || detected == nil)
+                .opacity((detected == nil && !isBusy) ? 0.40 : 1.0)
             }
 
             if detected == nil {
@@ -465,6 +474,16 @@ struct FreefireESPHomeSection: View {
                     .foregroundStyle(Color(white: 0.45))
             }
             Spacer()
+            Button { showV2LogSheet = true } label: {
+                Text("Xem log")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Color(red: 0.20, green: 0.20, blue: 0.26))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().strokeBorder(orange.opacity(0.40), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
             Button {
                 if store.antiBanV2Enabled { store.disableAntiBanV2() } else { store.enableAntiBanV2() }
             } label: {
@@ -485,6 +504,9 @@ struct FreefireESPHomeSection: View {
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
             .strokeBorder(store.antiBanV2Enabled ? orange.opacity(0.45) : Color.white.opacity(0.07), lineWidth: 1.2))
         .animation(.easeInOut(duration: 0.2), value: store.antiBanV2Enabled)
+        .sheet(isPresented: $showV2LogSheet) {
+            AntiBanV2LogSheet(store: store)
+        }
     }
 
     // MARK: - SpinBot 360° Card
@@ -1244,6 +1266,59 @@ private struct ESPResultSheet: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+}
+
+// MARK: - AntiBan V2 Log Sheet
+
+private struct AntiBanV2LogSheet: View {
+    @ObservedObject var store: FreefireESPStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color(red: 0.06, green: 0.06, blue: 0.09).ignoresSafeArea()
+                if store.antiBanV2Logs.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "shield.slash")
+                            .font(.system(size: 36))
+                            .foregroundStyle(Color(red: 1.00, green: 0.55, blue: 0.10).opacity(0.5))
+                        Text("Chưa có log — đang chờ scan...")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color(white: 0.45))
+                    }
+                } else {
+                    ScrollView(.vertical, showsIndicators: true) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(store.antiBanV2Logs.enumerated()), id: \.offset) { _, entry in
+                                Text(entry)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(entry.contains("Xóa") ? Color(red: 1.00, green: 0.45, blue: 0.20) : Color(white: 0.55))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 14).padding(.vertical, 3)
+                                Divider().background(Color.white.opacity(0.05))
+                            }
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+            }
+            .navigationTitle("AntiBan V2 — Log")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Xóa log") { store.antiBanV2Logs = [] }
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(red: 1.00, green: 0.55, blue: 0.10))
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Đóng") { dismiss() }
+                        .font(.system(size: 13, weight: .semibold))
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 
