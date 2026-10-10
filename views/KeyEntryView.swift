@@ -24,9 +24,9 @@ struct KeyEntryView: View {
                 .opacity(0.18)
                 .allowsHitTesting(false)
 
-            // Content — centered, keyboard doesn't push it
+            // Content — fixed full-screen height so Spacers never collapse to 0 when keyboard shows
             VStack(spacing: 0) {
-                Spacer()
+                Spacer(minLength: 20)
 
                 // Logo + branding
                 VStack(spacing: 14) {
@@ -68,7 +68,7 @@ struct KeyEntryView: View {
                         .frame(width: 34, height: 34)
 
                         TextField(language.text("license.placeholder"), text: $code)
-                            .font(.system(.body, design: .monospaced).weight(.semibold))
+                            .font(.system(size: 16, design: .monospaced).weight(.semibold))
                             .foregroundStyle(.white)
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
@@ -163,14 +163,14 @@ struct KeyEntryView: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 10)
 
-                Spacer()
+                Spacer(minLength: 20)
 
                 Text("Make By ©CheatiOSVip")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(Color(white: 0.28))
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 28)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height)
         }
         .ignoresSafeArea(.keyboard)
         .preferredColorScheme(.dark)
