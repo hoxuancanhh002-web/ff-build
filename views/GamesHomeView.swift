@@ -74,6 +74,50 @@ struct GamesHomeView: View {
                     .zIndex(200)
             }
 
+            if let toast = ffESP.toggleToast {
+                VStack(spacing: 0) {
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 10) {
+                            Image(systemName: toast.isOn ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(toast.isOn
+                                    ? Color(red: 0.20, green: 0.90, blue: 0.45)
+                                    : Color(red: 1.0, green: 0.35, blue: 0.35))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(toast.isOn ? "Đã bật chức năng" : "Đã tắt chức năng")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(Color(white: 0.60))
+                                Text(toast.featureName)
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color(red: 0.09, green: 0.11, blue: 0.16).opacity(0.97))
+                                .shadow(color: .black.opacity(0.45), radius: 10, y: 4)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(
+                                    toast.isOn
+                                        ? Color(red: 0.20, green: 0.90, blue: 0.45).opacity(0.35)
+                                        : Color(red: 1.0, green: 0.35, blue: 0.35).opacity(0.35),
+                                    lineWidth: 1)
+                        )
+                        .padding(.trailing, 14)
+                    }
+                    .padding(.top, 72)
+                    Spacer()
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .zIndex(180)
+            }
+
             if let msg = ffESP.autoInjectBlockReason {
                 VStack {
                     Spacer()
@@ -103,6 +147,7 @@ struct GamesHomeView: View {
         }
         .animation(.easeInOut(duration: 0.22), value: showLanguagePicker)
         .animation(.easeInOut(duration: 0.2), value: ffESP.isPatching)
+        .animation(.spring(response: 0.32, dampingFraction: 0.78), value: ffESP.toggleToast?.id)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: ffESP.autoInjectBlockReason)
         .onReceive(NotificationCenter.default.publisher(for: .openMakeToolsFile)) { _ in
             selectedTab = 3
