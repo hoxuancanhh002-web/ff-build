@@ -589,7 +589,7 @@ final class FreefireESPStore: ObservableObject {
 
             await MainActor.run {
                 if !featureToken.isEmpty { self.storedFeatureToken = featureToken }
-                self.flushState()
+                let cfgOk = self.flushState()
                 self.refresh()
                 self.syncBtnVisFlag()
                 self.ensureAntiBanCmdWatcher()
@@ -597,16 +597,24 @@ final class FreefireESPStore: ObservableObject {
                 if self.antiBanV2Enabled { self.ensureAntiBanV2Task() }
                 BackgroundAudioKeepAlive.shared.start()
                 self.isQuickPatching = false
-                if let info = toastInfo {
+                if cfgOk, let info = toastInfo {
                     self.showToggleToast(featureName: info.name, isOn: info.isOn)
                 }
             }
 
+            // Xóa patch bytes sau 5s (stealth), nhưng GIỮ LẠI esp_cfg để C# đọc liên tục.
+            // removePatches() xóa luôn esp_cfg → C# mất config → feature tắt sau 5s.
             try? await Task.sleep(nanoseconds: 5_000_000_000)
-            await MainActor.run {
-                if self.quickPatchGeneration == myGen {
-                    self.removePatches()
-                }
+            await MainActor.run { [weak self] in
+                guard let self, self.quickPatchGeneration == myGen else { return }
+                guard let (_, container) = self.resolvedContainer else { return }
+                let fm = FileManager.default
+                let docsPath = self.documentsPath(in: container)
+                try? fm.removeItem(atPath: self.patchBytesPath(in: container))
+                try? fm.removeItem(atPath: self.localConfigPath(in: container))
+                try? fm.removeItem(atPath: (docsPath as NSString)
+                    .appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.tok"))
+                self.refresh()
             }
         }
     }
@@ -909,8 +917,9 @@ final class FreefireESPStore: ObservableObject {
         if data.count >= 39 { skelThicknessRaw = Int32(data[38]) }
     }
 
-    private func flushState() {
-        guard let (_, container) = resolvedContainer else { return }
+    @discardableResult
+    private func flushState() -> Bool {
+        guard let (_, container) = resolvedContainer else { return false }
 
         var mainBits: Int32 = bitStateInitialized
         if enableESP    { mainBits |= bitEspMaster }
@@ -1020,7 +1029,13 @@ final class FreefireESPStore: ObservableObject {
         let docPath = documentsPath(in: container)
         try? FileManager.default.createDirectory(
             atPath: docPath, withIntermediateDirectories: true)
-        try? data.write(to: URL(fileURLWithPath: configFilePath(in: container)))
+        let cfgURL = URL(fileURLWithPath: configFilePath(in: container))
+        do {
+            try data.write(to: cfgURL)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func performPatch() async throws -> PatchResult {
