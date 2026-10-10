@@ -30,6 +30,13 @@ private enum SpeedLevel: Int, CaseIterable {
 // MARK: - Main view
 
 struct CheatMenuView: View {
+    @EnvironmentObject private var appState: AppState
+
+    private var isWaitingForExploit: Bool {
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 18
+            && !appState.exploitStatus.isSuccess
+            && appState.isSupported
+    }
 
     // ── Chọn game ──────────────────────────────────────────────────
     @AppStorage("cheat.game") private var selectedGame: String = CheatGame.freeFire.rawValue
@@ -391,18 +398,19 @@ struct CheatMenuView: View {
     private var injectBar: some View {
         HStack(spacing: 10) {
             // Inject button
+            let isBusy = isInjecting || isWaitingForExploit
             Button {
                 runInject()
             } label: {
                 HStack(spacing: 8) {
-                    if isInjecting {
+                    if isBusy {
                         ProgressView().tint(Color(red: 0.12, green: 0.12, blue: 0.14))
                             .scaleEffect(0.85)
                     } else {
                         Image(systemName: injectDone ? "checkmark.circle.fill" : "arrow.down.circle.fill")
                             .font(.system(size: 18, weight: .semibold))
                     }
-                    Text(isInjecting ? "Đang inject…" : injectDone ? "Inject lại" : "Inject Cheat")
+                    Text(isInjecting ? "Đang inject…" : isWaitingForExploit ? "Đang chuẩn bị (iOS 18)…" : injectDone ? "Inject lại" : "Inject Cheat")
                         .font(.system(size: 17, weight: .bold))
                 }
                 .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.14))
@@ -414,7 +422,7 @@ struct CheatMenuView: View {
                 )
             }
             .buttonStyle(.plain)
-            .disabled(isInjecting)
+            .disabled(isBusy)
 
             // Reset button
             Button {
