@@ -10,7 +10,8 @@ class AppState: ObservableObject {
     /// Runs the kernel exploit chain once per session on a background thread.
     /// Safe to call multiple times — no-op if already started or device unsupported.
     func runExploit() {
-        guard !exploitStarted, isSupported else { return }
+        let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        guard major == 18, !exploitStarted, isSupported else { return }
         exploitStarted = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let ok = KernelExploit.run()
