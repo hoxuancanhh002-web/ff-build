@@ -319,6 +319,7 @@ final class FreefireESPStore: ObservableObject {
 
     // MARK: - AntiBan Memory V2
     @Published var antiBanV2Enabled: Bool = UserDefaults.standard.bool(forKey: "ab_v2_on")
+    @Published var antiBanV2Logs: [String] = []
     private var antiBanV2Task: Task<Void, Never>?
 
     enum PatchResult: Identifiable, Equatable {
@@ -925,14 +926,14 @@ final class FreefireESPStore: ObservableObject {
         }
 
         let capturedDocs = docsPath
-        await MainActor.run { self.injectProgress = 0.42; self.injectPhaseLabel = "Tạo file bảo vệ..." }
+        await MainActor.run { self.injectProgress = 0.42; self.injectPhaseLabel = "Đang tiến hành inject..." }
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             DispatchQueue.global(qos: .background).async {
                 CheatInjectService.generateDecoyFiles(in: capturedDocs) { progress in
                     let total = 0.42 + progress * 0.58
                     Task { @MainActor [weak self] in
                         self?.injectProgress = total
-                        self?.injectPhaseLabel = "Tạo file bảo vệ... \(Int(total * 100))%"
+                        self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
                     }
                 }
                 cont.resume()
@@ -1382,6 +1383,9 @@ final class FreefireESPStore: ObservableObject {
         let docsPath = documentsPath(in: container)
         let fm = FileManager.default
         guard let items = try? fm.contentsOfDirectory(atPath: docsPath) else { return }
+        let fmt = DateFormatter(); fmt.dateFormat = "HH:mm:ss"
+        let time = fmt.string(from: Date())
+        var deleted: [String] = []
         for item in items {
             let lower = item.lowercased()
             if lower.hasSuffix(".flag") { continue }
@@ -1392,7 +1396,12 @@ final class FreefireESPStore: ObservableObject {
             fm.fileExists(atPath: fullPath, isDirectory: &isDir)
             if !isDir.boolValue {
                 try? fm.removeItem(atPath: fullPath)
+                deleted.append(item)
             }
         }
+        var newEntries: [String] = []
+        for name in deleted { newEntries.append("\(time) — Xóa: \(name)") }
+        newEntries.append("\(time) — Scan: \(items.count) files, xóa \(deleted.count)")
+        antiBanV2Logs = (newEntries.reversed() + antiBanV2Logs).prefix(300).map { $0 }
     }
 }

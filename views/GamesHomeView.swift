@@ -899,17 +899,22 @@ private struct InjectProgressOverlay: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // Icon
+                // Logo
                 ZStack {
-                    Circle()
-                        .fill(AppTheme.injectGreen.opacity(0.12))
-                        .frame(width: 96, height: 96)
-                    Circle()
-                        .strokeBorder(AppTheme.injectGreen.opacity(0.25), lineWidth: 1.5)
-                        .frame(width: 96, height: 96)
-                    Image(systemName: "bolt.shield.fill")
-                        .font(.system(size: 46))
-                        .foregroundStyle(AppTheme.injectGreen)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+                        .frame(width: 148, height: 56)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                        .frame(width: 148, height: 56)
+                    HStack(spacing: 0) {
+                        Text("CheatiOS")
+                            .font(.system(size: 20, weight: .black))
+                            .foregroundStyle(.white)
+                        Text(" Vip")
+                            .font(.system(size: 20, weight: .black))
+                            .foregroundStyle(AppTheme.neonRed)
+                    }
                 }
                 .padding(.bottom, 28)
 
