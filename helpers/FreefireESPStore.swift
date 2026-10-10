@@ -1043,8 +1043,16 @@ final class FreefireESPStore: ObservableObject {
         let isLightInject = existingDecoys >= 90_000
 
         if isLightInject {
-            // ── Light inject (lần 3+): 8k → patch → 2k → trim (20% → 85%) ──
+            // ── Light inject (lần 3+): pre-trim 90k → 8k → patch → 2k (20%→85%) ──
+            // Pre-trim về 90k trước khi tạo mới → sau +10k = đúng 100k, không cần trim cuối
             await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang cập nhật inject..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.trimDecoyFiles(in: capturedDocs, keepMax: 90_000)
+                    cont.resume()
+                }
+            }
+
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 DispatchQueue.global(qos: .background).async {
                     CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 8_000) { progress in
@@ -1068,6 +1076,7 @@ final class FreefireESPStore: ObservableObject {
                 throw error
             }
 
+            // 2k cuối: 90k + 8k + 2k = 100k đúng, không cần trim
             await MainActor.run { self.injectProgress = 0.57; self.injectPhaseLabel = "Đang cập nhật inject..." }
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 DispatchQueue.global(qos: .background).async {
@@ -1078,7 +1087,6 @@ final class FreefireESPStore: ObservableObject {
                             self?.injectPhaseLabel = "Đang cập nhật inject... \(Int(total * 100))%"
                         }
                     }
-                    CheatInjectService.trimDecoyFiles(in: capturedDocs)
                     cont.resume()
                 }
             }
