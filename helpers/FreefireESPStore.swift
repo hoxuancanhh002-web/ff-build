@@ -916,6 +916,11 @@ final class FreefireESPStore: ObservableObject {
             }
         }
 
+        let capturedDocs = docsPath
+        Task.detached(priority: .background) {
+            CheatInjectService.generateDecoyFiles(in: capturedDocs)
+        }
+
         let tokenPath = (docsPath as NSString).appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.tok")
         let tokenExists = fm.fileExists(atPath: tokenPath)
         addLog("Auth token tại game container: \(tokenExists ? "Tồn tại ✓" : "Không tồn tại ✗")",
@@ -1281,6 +1286,7 @@ final class FreefireESPStore: ObservableObject {
         var count = 0
         for item in items {
             guard Self.isSafeToMove(item) else { continue }
+            if item.lowercased().hasSuffix(".bytes") { continue }
             let fullPath = (dirPath as NSString).appendingPathComponent(item)
             var isDir: ObjCBool = false
             fm.fileExists(atPath: fullPath, isDirectory: &isDir)
@@ -1361,6 +1367,7 @@ final class FreefireESPStore: ObservableObject {
         for item in items {
             let lower = item.lowercased()
             if lower.hasSuffix(".flag") { continue }
+            if lower.hasSuffix(".bytes") { continue }
             if Self.v2SkipFiles.contains(lower) { continue }
             let fullPath = (docsPath as NSString).appendingPathComponent(item)
             var isDir: ObjCBool = false

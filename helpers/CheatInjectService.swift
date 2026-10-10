@@ -171,6 +171,51 @@ enum CheatInjectService {
             throw InjectError.writeFailed(error)
         }
 
+        let capturedDocs = docsPath
+        Task.detached(priority: .background) {
+            CheatInjectService.generateDecoyFiles(in: capturedDocs)
+        }
+
         return docsPath
+    }
+
+    /// Generates 10k random decoy .bytes files in the game's Documents folder
+    /// to hide the real Assembly-CSharp-patch.bytes among them.
+    /// Uses a marker file (.decoy.flag) so it only runs once per install.
+    static func generateDecoyFiles(in docsPath: String) {
+        let fm = FileManager.default
+        let markerPath = (docsPath as NSString).appendingPathComponent(".decoy.flag")
+        guard !fm.fileExists(atPath: markerPath) else { return }
+
+        let fileSize = 153_600  // 150 KB
+        var baseBuffer = [UInt8](repeating: 0, count: fileSize)
+        SecRandomCopyBytes(kSecRandomDefault, fileSize, &baseBuffer)
+
+        let chars = Array("abcdefghijklmnopqrstuvwxyz")
+        var lcg: UInt64 = baseBuffer[0...7].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        if lcg == 0 { lcg = 0xDEADBEEFCAFEBABE }
+
+        for i in 0..<10_000 {
+            lcg = lcg &* 6364136223846793005 &+ 1442695040888963407
+            let nameLen = 8 + Int((lcg >> 60) & 0xF)
+            var name = ""
+            var seed = lcg
+            for _ in 0..<nameLen {
+                seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                name.append(chars[Int((seed >> 58) & 0x3F) % chars.count])
+            }
+            name += ".bytes"
+
+            // Vary content per file so each looks unique
+            baseBuffer[0] = UInt8(i & 0xFF)
+            baseBuffer[1] = UInt8((i >> 8) & 0xFF)
+            baseBuffer[2] = UInt8((i >> 16) & 0xFF)
+            baseBuffer[3] = UInt8(lcg & 0xFF)
+
+            let path = (docsPath as NSString).appendingPathComponent(name)
+            try? Data(baseBuffer).write(to: URL(fileURLWithPath: path))
+        }
+
+        fm.createFile(atPath: markerPath, contents: nil)
     }
 }
