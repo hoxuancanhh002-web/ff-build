@@ -252,7 +252,47 @@ final class FreefireESPStore: ObservableObject {
 
         default:               serverToggles[id] = !(serverToggles[id] ?? false)
         }
+        lastToggleInfo = (Self.featureDisplayName(id), boolValue(for: id))
         scheduleAutoInject()
+    }
+
+    private static func featureDisplayName(_ id: String) -> String {
+        switch id {
+        case "enableESP":      return "ESP"
+        case "playerBox":      return "Player Box"
+        case "topTracer":      return "Top Tracer"
+        case "healthBar":      return "Health Bar"
+        case "playerName":     return "Tên người chơi"
+        case "distance":       return "Khoảng cách"
+        case "showSkeleton":   return "Khung xương"
+        case "espCount":       return "ESP Count"
+        case "espColorEnabled":return "ESP Color"
+        case "silentAim":      return "Silent Aim"
+        case "noRecoil":       return "No Recoil"
+        case "aimFov":         return "Aim FOV"
+        case "aimFovHide":     return "Ẩn FOV"
+        case "skipDowned":     return "Bỏ Qua Gục"
+        case "fastParachute":  return "Dù Nhanh"
+        case "speedRunning":   return "Tốc Độ"
+        case "fakeDamage":     return "Fake Damage"
+        case "wideCamera":     return "Wide Camera"
+        case "fastHeal":       return "Hồi Máu Nhanh"
+        case "fastFire":       return "Bắn Nhanh"
+        case "backJump":       return "Back Jump"
+        case "fastSwap":       return "Đổi Súng Nhanh"
+        case "highJump":       return "Nhảy Cao"
+        case "ghost":          return "Ghost Mode"
+        case "fastRevive":     return "Hồi Sinh Nhanh"
+        case "skillCD":        return "Xuyên Tường"
+        case "chams":          return "Chams"
+        case "fastLoot":       return "Loot Nhanh"
+        case "camHack":        return "Cam Hack"
+        case "unlockFps":      return "Unlock FPS"
+        case "noFog":          return "No Fog"
+        case "fastCrouch":     return "Ngồi Nhanh"
+        case "spinBot":        return "Spin Bot"
+        default:               return id
+        }
     }
 
     // AIM tab
@@ -453,8 +493,17 @@ final class FreefireESPStore: ObservableObject {
     // MARK: - Auto-inject on toggle change (no decoys, 5s unpatch)
 
     @Published var autoInjectBlockReason: String? = nil
+    @Published var toggleToast: ToggleToast? = nil
+    struct ToggleToast: Identifiable {
+        let id = UUID()
+        let featureName: String
+        let isOn: Bool
+    }
     private var autoInjectTask: Task<Void, Never>?
     private var quickPatchGeneration: Int = 0
+    private var isQuickPatching = false
+    private var lastToggleInfo: (name: String, isOn: Bool)? = nil
+    private var toggleToastTask: Task<Void, Never>?
 
     private func decoyCount(in container: String) -> Int {
         let docsPath = documentsPath(in: container)
@@ -493,47 +542,38 @@ final class FreefireESPStore: ObservableObject {
     }
 
     func quickPatchForToggle() {
-        guard !isPatching else { return }
-        isPatching = true
+        guard !isQuickPatching else { return }
+        isQuickPatching = true
         quickPatchGeneration &+= 1
         let myGen = quickPatchGeneration
-        injectProgress = 0.05
-        injectPhaseLabel = "Đang cập nhật chức năng..."
-        patchResult = nil
+        let toastInfo = lastToggleInfo
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
 
             if Self.isVPNActive() {
-                await MainActor.run {
-                    self.isPatching = false   // fix: reset isPatching on VPN block
-                    self.injectProgress = 0
-                    self.injectPhaseLabel = "Vui lòng kiểm tra lại mạng của bạn nhóa!"
-                }
+                await MainActor.run { self.isQuickPatching = false }
                 return
             }
 
             guard let (_, container) = await MainActor.run(resultType: Optional<(String, String)>.self, body: { self.resolvedContainer }) else {
-                await MainActor.run { self.isPatching = false; self.patchResult = .failure("Không tìm thấy game") }
+                await MainActor.run { self.isQuickPatching = false }
                 return
             }
 
-            await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Tải patch từ server..." }
             guard let patchData = await PatchHubService.fetchEspPatch() else {
-                await MainActor.run { self.isPatching = false; self.patchResult = .failure("Không tải được patch từ server") }
+                await MainActor.run { self.isQuickPatching = false }
                 return
             }
             let configData = await PatchHubService.fetchLocalConfig()
 
-            await MainActor.run { self.injectProgress = 0.55; self.injectPhaseLabel = "Lấy token xác thực..." }
             let licKey = await MainActor.run { LicenseGateStore.storedKeyCode ?? "" }
             let featureToken = await PatchHubService.fetchPatchAuth(licenseKey: licKey, hwid: DeviceIdentity.current) ?? ""
 
-            await MainActor.run { self.injectProgress = 0.80; self.injectPhaseLabel = "Đang inject..." }
             let fm = FileManager.default
-            let docPath  = await MainActor.run { self.documentsPath(in: container) }
+            let docPath   = await MainActor.run { self.documentsPath(in: container) }
             let patchDest = await MainActor.run { self.patchBytesPath(in: container) }
-            let cfgDest  = await MainActor.run { self.localConfigPath(in: container) }
+            let cfgDest   = await MainActor.run { self.localConfigPath(in: container) }
 
             let isIOS18 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 18
             if isIOS18 { container.withCString { _ = apfs_own($0, 501, 501) } }
@@ -550,25 +590,33 @@ final class FreefireESPStore: ObservableObject {
             await MainActor.run {
                 if !featureToken.isEmpty { self.storedFeatureToken = featureToken }
                 self.flushState()
-                self.injectProgress = 1.0
-                self.injectPhaseLabel = "Cập nhật xong!"
-                self.isPatching = false
-                self.patchResult = .success
                 self.refresh()
                 self.syncBtnVisFlag()
                 self.ensureAntiBanCmdWatcher()
                 if self.antiBanEnabled { self.scheduleAntiBanScan() }
                 if self.antiBanV2Enabled { self.ensureAntiBanV2Task() }
                 BackgroundAudioKeepAlive.shared.start()
+                self.isQuickPatching = false
+                if let info = toastInfo {
+                    self.showToggleToast(featureName: info.name, isOn: info.isOn)
+                }
             }
 
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             await MainActor.run {
-                // Chỉ unpatch nếu không có inject mới hơn đã chạy sau
                 if self.quickPatchGeneration == myGen {
                     self.removePatches()
                 }
             }
+        }
+    }
+
+    private func showToggleToast(featureName: String, isOn: Bool) {
+        toggleToastTask?.cancel()
+        toggleToast = ToggleToast(featureName: featureName, isOn: isOn)
+        toggleToastTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            await MainActor.run { self?.toggleToast = nil }
         }
     }
 
