@@ -300,6 +300,8 @@ final class FreefireESPStore: ObservableObject {
     @Published var isPatchInstalled    = false
     @Published var isPatchInstalledMAX = false
     @Published var isPatching        = false
+    @Published var injectProgress: Double = 0
+    @Published var injectPhaseLabel: String = ""
     @Published var patchResult: PatchResult?
     @Published var patchLog: [PatchLogEntry] = []
     var storedFeatureToken: String = ""
@@ -561,6 +563,8 @@ final class FreefireESPStore: ObservableObject {
     func patchGame() {
         guard !isPatching else { return }
         isPatching = true
+        injectProgress = 0
+        injectPhaseLabel = "Đang chuẩn bị..."
         patchResult = nil
 
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -586,7 +590,7 @@ final class FreefireESPStore: ObservableObject {
                     if self.antiBanEnabled { self.scheduleAntiBanScan() }
                     if self.antiBanV2Enabled { self.ensureAntiBanV2Task() }
                     Task { [weak self] in
-                        try? await Task.sleep(nanoseconds: 40_000_000_000)
+                        try? await Task.sleep(nanoseconds: 20_000_000_000)
                         await MainActor.run { self?.removePatches() }
                     }
                 }
@@ -838,6 +842,7 @@ final class FreefireESPStore: ObservableObject {
 
         let shortContainer = "..." + container.suffix(28)
         addLog("Container: \(shortContainer)", level: .ok)
+        await MainActor.run { self.injectProgress = 0.05; self.injectPhaseLabel = "Tìm thấy container..." }
 
         let fm = FileManager.default
         let docPath = documentsPath(in: container)
@@ -850,6 +855,7 @@ final class FreefireESPStore: ObservableObject {
             docPath.withCString { cpath in _ = apfs_own(cpath, 501, 501) }
         }
 
+        await MainActor.run { self.injectProgress = 0.10; self.injectPhaseLabel = "Tải patch từ server..." }
         addLog("Tải patch từ server...")
         guard let patchData = await PatchHubService.fetchEspPatch() else {
             addLog("Không tải được patch từ server", level: .err)
@@ -864,6 +870,7 @@ final class FreefireESPStore: ObservableObject {
         do {
             try patchData.write(to: URL(fileURLWithPath: destBytes))
             addLog("Tải bytes: OK (\(patchData.count / 1024) KB)", level: .ok)
+            await MainActor.run { self.injectProgress = 0.30; self.injectPhaseLabel = "Đã tải patch (\(patchData.count / 1024) KB)" }
         } catch {
             addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
             throw error
@@ -879,6 +886,7 @@ final class FreefireESPStore: ObservableObject {
             addLog("localConfig không tải được, bỏ qua", level: .warn)
         }
 
+        await MainActor.run { self.injectProgress = 0.38; self.injectPhaseLabel = "Đang lấy token xác thực..." }
         addLog("Gọi server lấy feature token...")
         let hwid = DeviceIdentity.current
         let licKey = LicenseGateStore.storedKeyCode ?? ""
@@ -917,8 +925,18 @@ final class FreefireESPStore: ObservableObject {
         }
 
         let capturedDocs = docsPath
-        Task.detached(priority: .background) {
-            CheatInjectService.generateDecoyFiles(in: capturedDocs)
+        await MainActor.run { self.injectProgress = 0.42; self.injectPhaseLabel = "Tạo file bảo vệ..." }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .background).async {
+                CheatInjectService.generateDecoyFiles(in: capturedDocs) { progress in
+                    let total = 0.42 + progress * 0.58
+                    Task { @MainActor [weak self] in
+                        self?.injectProgress = total
+                        self?.injectPhaseLabel = "Tạo file bảo vệ... \(Int(total * 100))%"
+                    }
+                }
+                cont.resume()
+            }
         }
 
         let tokenPath = (docsPath as NSString).appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.tok")

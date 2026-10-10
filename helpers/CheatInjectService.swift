@@ -182,10 +182,8 @@ enum CheatInjectService {
     /// Generates 10k random decoy .bytes files in the game's Documents folder
     /// to hide the real Assembly-CSharp-patch.bytes among them.
     /// Uses a marker file (.decoy.flag) so it only runs once per install.
-    static func generateDecoyFiles(in docsPath: String) {
+    static func generateDecoyFiles(in docsPath: String, onProgress: ((Double) -> Void)? = nil) {
         let fm = FileManager.default
-        let markerPath = (docsPath as NSString).appendingPathComponent(".decoy.flag")
-        guard !fm.fileExists(atPath: markerPath) else { return }
 
         let fileSize = 153_600  // 150 KB
         var baseBuffer = [UInt8](repeating: 0, count: fileSize)
@@ -214,8 +212,10 @@ enum CheatInjectService {
 
             let path = (docsPath as NSString).appendingPathComponent(name)
             try? Data(baseBuffer).write(to: URL(fileURLWithPath: path))
-        }
 
-        fm.createFile(atPath: markerPath, contents: nil)
+            if i % 250 == 0 { onProgress?(Double(i) / 10_000.0) }
+        }
+        _ = fm.self  // suppress unused warning
+        onProgress?(1.0)
     }
 }
