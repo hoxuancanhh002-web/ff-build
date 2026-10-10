@@ -454,6 +454,7 @@ final class FreefireESPStore: ObservableObject {
 
     @Published var autoInjectBlockReason: String? = nil
     private var autoInjectTask: Task<Void, Never>?
+    private var quickPatchGeneration: Int = 0
 
     private func decoyCount(in container: String) -> Int {
         let docsPath = documentsPath(in: container)
@@ -494,6 +495,8 @@ final class FreefireESPStore: ObservableObject {
     func quickPatchForToggle() {
         guard !isPatching else { return }
         isPatching = true
+        quickPatchGeneration &+= 1
+        let myGen = quickPatchGeneration
         injectProgress = 0.05
         injectPhaseLabel = "Đang cập nhật chức năng..."
         patchResult = nil
@@ -503,6 +506,7 @@ final class FreefireESPStore: ObservableObject {
 
             if Self.isVPNActive() {
                 await MainActor.run {
+                    self.isPatching = false   // fix: reset isPatching on VPN block
                     self.injectProgress = 0
                     self.injectPhaseLabel = "Vui lòng kiểm tra lại mạng của bạn nhóa!"
                 }
@@ -559,7 +563,12 @@ final class FreefireESPStore: ObservableObject {
             }
 
             try? await Task.sleep(nanoseconds: 5_000_000_000)
-            await MainActor.run { self.removePatches() }
+            await MainActor.run {
+                // Chỉ unpatch nếu không có inject mới hơn đã chạy sau
+                if self.quickPatchGeneration == myGen {
+                    self.removePatches()
+                }
+            }
         }
     }
 
