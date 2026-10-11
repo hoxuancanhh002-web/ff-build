@@ -520,8 +520,8 @@ enum PatchHubService {
     }
 
     /// POST /api/v2/key-ping — checks key exists in v2 store and is still valid.
-    /// Returns true on success, false on any error/expired/invalid response.
-    static func fetchKeyPing(licenseKey: String, deviceId: String) async -> Bool {
+    /// Returns (ok, tier) where tier is "pro" or "lite". Returns (false, "pro") on any error.
+    static func fetchKeyPing(licenseKey: String, deviceId: String) async -> (Bool, String) {
         let url = baseURL.appendingPathComponent(pathKeyPing)
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -541,8 +541,9 @@ enum PatchHubService {
               let http = response as? HTTPURLResponse, http.statusCode == 200,
               verifyResponse(data: data, httpResponse: http),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              json["ok"] as? Bool == true else { return false }
-        return true
+              json["ok"] as? Bool == true else { return (false, "pro") }
+        let tier = (json["tier"] as? String) == "lite" ? "lite" : "pro"
+        return (true, tier)
     }
 
     @discardableResult
