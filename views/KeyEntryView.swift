@@ -170,7 +170,7 @@ struct KeyEntryView: View {
                     .foregroundStyle(Color(white: 0.28))
                     .padding(.bottom, 28)
             }
-            .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .ignoresSafeArea(.keyboard)
         .preferredColorScheme(.dark)
