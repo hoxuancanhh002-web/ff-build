@@ -172,7 +172,7 @@ struct KeyEntryView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .ignoresSafeArea(.keyboard)
+        .animation(.easeOut(duration: 0.28), value: isFocused)
         .preferredColorScheme(.dark)
     }
 
