@@ -590,7 +590,6 @@ final class FreefireESPStore: ObservableObject {
             await MainActor.run {
                 if !featureToken.isEmpty { self.storedFeatureToken = featureToken }
                 let cfgOk = self.flushState()
-                self.refresh()
                 self.syncBtnVisFlag()
                 self.ensureAntiBanCmdWatcher()
                 if self.antiBanEnabled { self.scheduleAntiBanScan() }
@@ -704,7 +703,6 @@ final class FreefireESPStore: ObservableObject {
         let pdataPath = (docsPath as NSString)
             .appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.pdata")
         try? fm.removeItem(atPath: pdataPath)
-        storedFeatureToken = ""
         tokenRefreshTask?.cancel()
         tokenRefreshTask = nil
         refresh()
