@@ -154,11 +154,12 @@ struct KeyVerificationSplashView: View {
         // Chạy song song ping + tối thiểu 1.5s để user thấy spinner
         async let ping = PatchHubService.fetchKeyPing(licenseKey: key, deviceId: deviceId)
         async let minWait: () = Task.sleep(nanoseconds: 1_500_000_000)
-        let ok = await ping
+        let (ok, tier) = await ping
         _ = try? await minWait
 
         if ok {
             licenseGate.openServerGate()
+            UserDefaults.standard.set(tier == "lite", forKey: "fakeAppEnabled")
             withAnimation { showCheckmark = true }
             statusText = "Xác thực thành công"
             statusColor = AppTheme.injectGreen
