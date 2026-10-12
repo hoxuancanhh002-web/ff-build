@@ -334,6 +334,7 @@ final class FreefireESPStore: ObservableObject {
     @Published var speedRunning  = false
     @Published var fakeDamage    = false
     @Published var speedHack     = false
+    @Published var speedHackValue: Int32 = 2
     @Published var radar         = false
     @Published var wideCamera    = false
     @Published var wideCameraFov: Int32 = 88
@@ -744,6 +745,11 @@ final class FreefireESPStore: ObservableObject {
         flushState()
     }
 
+    func setSpeedHackValue(_ v: Int32) {
+        speedHackValue = max(1, min(5, v))
+        flushState()
+    }
+
     func setWideCameraFov(_ fov: Int32) {
         wideCameraFov = max(60, min(120, fov))
         flushState()
@@ -756,6 +762,7 @@ final class FreefireESPStore: ObservableObject {
 
     func doubleValue(for id: String) -> Double {
         switch id {
+        case "speedHackValue": return Double(speedHackValue)
         case "wideCameraFov": return Double(wideCameraFov)
         case "silentFov":     return Double(silentFov)
         case "fovRadius":     return Double(fovRadius)
@@ -770,6 +777,7 @@ final class FreefireESPStore: ObservableObject {
 
     func setDouble(for id: String, _ value: Double) {
         switch id {
+        case "speedHackValue": setSpeedHackValue(Int32(value))
         case "wideCameraFov": setWideCameraFov(Int32(value))
         case "silentFov":     setSilentFov(Int32(value))
         case "fovRadius":     setFovRadius(Int32(value))
@@ -945,6 +953,7 @@ final class FreefireESPStore: ObservableObject {
             }
         }
 
+        let isInitialized = (mainBits & bitStateInitialized) != 0
         enableESP       = (mainBits & bitEspMaster)      != 0
         playerBox       = (mainBits & bitEspBox)          != 0
         topTracer       = (mainBits & bitEspTracer)       != 0
@@ -1003,38 +1012,47 @@ final class FreefireESPStore: ObservableObject {
         noFog       = (r8 & bitR8NoFog)      != 0
         fastCrouch  = (r8 & bitR8FastCrouch) != 0
 
-        // Thickness from bytes 11-13
-        lineThicknessRaw  = data.count >= 12 ? Int32(data[11]) : 5
-        boxThicknessRaw   = data.count >= 13 ? Int32(data[12]) : 5
-        nameThicknessRaw  = data.count >= 14 ? Int32(data[13]) : 5
+        // Thickness and colors — only read from pdata when state was previously flushed by app.
+        // If pdata is zeroed (isInitialized==false), keep @Published defaults (white/1.9px).
+        if isInitialized {
+            lineThicknessRaw  = data.count >= 12 ? Int32(data[11]) : 7
+            boxThicknessRaw   = data.count >= 13 ? Int32(data[12]) : 7
+            nameThicknessRaw  = data.count >= 14 ? Int32(data[13]) : 5
 
-        // RGB colors from bytes 14-31
-        if data.count >= 17 { lineColor   = bytesToColor(r: data[14], g: data[15], b: data[16]) }
-        if data.count >= 20 { boxColor    = bytesToColor(r: data[17], g: data[18], b: data[19]) }
-        if data.count >= 23 { healthColor = bytesToColor(r: data[20], g: data[21], b: data[22]) }
-        if data.count >= 26 { nameColor   = bytesToColor(r: data[23], g: data[24], b: data[25]) }
-        if data.count >= 29 { distColor     = bytesToColor(r: data[26], g: data[27], b: data[28]) }
-        if data.count >= 32 { countColor    = bytesToColor(r: data[29], g: data[30], b: data[31]) }
-        if data.count >= 35 { skeletonColor = bytesToColor(r: data[32], g: data[33], b: data[34]) }
-        if data.count >= 38 { fovColor      = bytesToColor(r: data[35], g: data[36], b: data[37]) }
-        if data.count >= 39 { skelThicknessRaw = Int32(data[38]) }
+            if data.count >= 17 { lineColor   = bytesToColor(r: data[14], g: data[15], b: data[16]) }
+            if data.count >= 20 { boxColor    = bytesToColor(r: data[17], g: data[18], b: data[19]) }
+            if data.count >= 23 { healthColor = bytesToColor(r: data[20], g: data[21], b: data[22]) }
+            if data.count >= 26 { nameColor   = bytesToColor(r: data[23], g: data[24], b: data[25]) }
+            if data.count >= 29 { distColor     = bytesToColor(r: data[26], g: data[27], b: data[28]) }
+            if data.count >= 32 { countColor    = bytesToColor(r: data[29], g: data[30], b: data[31]) }
+            if data.count >= 35 { skeletonColor = bytesToColor(r: data[32], g: data[33], b: data[34]) }
+            if data.count >= 38 { fovColor      = bytesToColor(r: data[35], g: data[36], b: data[37]) }
+            if data.count >= 39 { skelThicknessRaw = Int32(data[38]) }
+        }
         if data.count >= 62 { let _as = Int32(data[61] & 7); aimSpeed = _as > 0 ? _as : 4 }
         if data.count >= 63 {
             let b62 = data[62]
             speedHack = (b62 & bitB62SpeedHack) != 0
             radar     = (b62 & bitB62Radar)     != 0
         }
+        if data.count >= 64 {
+            let v = Int32(data[63])
+            speedHackValue = v >= 1 && v <= 5 ? v : 2
+        }
 
-        // One-time migration: apply new color/thickness defaults on first launch after update.
-        let migKey = "esp_defaults_v3"
+        // One-time migration: restore correct color/thickness defaults after reset.
+        let migKey = "esp_defaults_v4"
         if !UserDefaults.standard.bool(forKey: migKey) {
             lineColor        = Color(red: 1.00, green: 1.00, blue: 1.00)
             boxColor         = Color(red: 1.00, green: 1.00, blue: 1.00)
             skeletonColor    = Color(red: 1.00, green: 1.00, blue: 1.00)
             healthColor      = Color(red: 0.10, green: 0.95, blue: 0.10)
+            distColor        = Color(red: 1.00, green: 1.00, blue: 1.00)
+            countColor       = Color(red: 1.00, green: 0.10, blue: 0.10)
             lineThicknessRaw = 7
             boxThicknessRaw  = 7
             skelThicknessRaw = 7
+            nameThicknessRaw = 5
             aimSpeed         = 4
             UserDefaults.standard.set(true, forKey: migKey)
             _ = flushState()
@@ -1091,7 +1109,7 @@ final class FreefireESPStore: ObservableObject {
         auxBits |= ((fovRadius / 2) & 0xFF) << auxFovRadiusShift
         auxBits |= ((silentFov / 2) & 0xFF) << auxSilentFovShift
 
-        var data = Data(count: 63)
+        var data = Data(count: 64)
         data.withUnsafeMutableBytes { ptr in
             withUnsafeBytes(of: mainBits) { src in
                 ptr.baseAddress!.copyMemory(from: src.baseAddress!, byteCount: 4)
@@ -1154,6 +1172,7 @@ final class FreefireESPStore: ObservableObject {
         if speedHack { b62 |= bitB62SpeedHack }
         if radar     { b62 |= bitB62Radar }
         data[62] = b62
+        data[63] = UInt8(max(1, min(5, speedHackValue)))
 
         let docPath = documentsPath(in: container)
         try? FileManager.default.createDirectory(
