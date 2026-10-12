@@ -392,6 +392,11 @@ final class FreefireESPStore: ObservableObject {
     @Published var antiBanV2Logs: [String] = []
     private var antiBanV2Task: Task<Void, Never>?
 
+    // MARK: - Auto AntiBan (radar-based match detection)
+    @Published var autoAntiBanEnabled: Bool = UserDefaults.standard.bool(forKey: "ab_auto_on")
+    private var autoAntiBanMonitorTask: Task<Void, Never>?
+    private var autoAntiBanInMatch = false
+
     enum PatchResult: Identifiable, Equatable {
         case success
         case successPhase1  // inject lần 1 xong, cần inject lần 2
@@ -512,6 +517,10 @@ final class FreefireESPStore: ObservableObject {
         if antiBanEnabled && antiBanScanTask == nil {
             ensureAntiBanCmdWatcher()
             scheduleAntiBanScan()
+        }
+        // Auto-resume Auto AntiBan monitor nếu đã bật trước đó
+        if autoAntiBanEnabled && autoAntiBanMonitorTask == nil {
+            startAutoAntiBanMonitor()
         }
         // Auto-restart token refresh after app relaunch if patch is already installed
         if tokenRefreshTask == nil,
@@ -1611,6 +1620,39 @@ final class FreefireESPStore: ObservableObject {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             self.antiBanStatusMsg = ""
             self.antiBanProgress = 0
+        }
+    }
+
+    func setAutoAntiBan(_ enabled: Bool) {
+        autoAntiBanEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "ab_auto_on")
+        if enabled {
+            startAutoAntiBanMonitor()
+        } else {
+            autoAntiBanMonitorTask?.cancel()
+            autoAntiBanMonitorTask = nil
+            autoAntiBanInMatch = false
+        }
+    }
+
+    func startAutoAntiBanMonitor() {
+        guard autoAntiBanEnabled, let (_, container) = resolvedContainer else { return }
+        autoAntiBanMonitorTask?.cancel()
+        autoAntiBanMonitorTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled && self.autoAntiBanEnabled {
+                let docs = self.documentsPath(in: container)
+                let flagPath = (docs as NSString).appendingPathComponent(".esp_match_active")
+                let inMatch = FileManager.default.fileExists(atPath: flagPath)
+                if inMatch && !self.autoAntiBanInMatch {
+                    self.autoAntiBanInMatch = true
+                    if !self.antiBanEnabled { self.enableAntiBan() }
+                } else if !inMatch && self.autoAntiBanInMatch {
+                    self.autoAntiBanInMatch = false
+                    if self.antiBanEnabled { self.disableAntiBan() }
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
         }
     }
 
