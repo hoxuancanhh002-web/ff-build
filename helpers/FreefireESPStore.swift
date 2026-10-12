@@ -142,18 +142,18 @@ final class FreefireESPStore: ObservableObject {
 
     // MARK: - Published state (ESP tab)
     @Published var enableESP    = true
-    @Published var playerBox    = true
-    @Published var topTracer    = true
-    @Published var healthBar    = true
-    @Published var playerName   = true
-    @Published var distance     = true
-    @Published var espCount      = true
+    @Published var playerBox    = false
+    @Published var topTracer    = false
+    @Published var healthBar    = false
+    @Published var playerName   = false
+    @Published var distance     = false
+    @Published var espCount      = false
     @Published var espColorEnabled = false
-    @Published var showSkeleton  = true
+    @Published var showSkeleton  = false
 
     // ESP Colors (full RGB — stored as bytes 14-31 in config)
-    @Published var lineColor:   Color = Color(red: 1.00, green: 0.10, blue: 0.10)
-    @Published var boxColor:    Color = Color(red: 1.00, green: 0.10, blue: 0.10)
+    @Published var lineColor:   Color = Color(red: 1.00, green: 1.00, blue: 1.00)
+    @Published var boxColor:    Color = Color(red: 1.00, green: 1.00, blue: 1.00)
     @Published var healthColor: Color = Color(red: 0.10, green: 0.95, blue: 0.10)
     @Published var nameColor:   Color = Color(red: 1.00, green: 1.00, blue: 0.10)
     @Published var distColor:     Color = Color(red: 1.00, green: 1.00, blue: 1.00)
@@ -163,10 +163,10 @@ final class FreefireESPStore: ObservableObject {
 
     // Thickness raw (0-97 → px = 0.5 + raw * 0.2, max 20.0 px at raw=97)
     // Health bar width auto-follows boxThicknessRaw (no separate slider)
-    @Published var lineThicknessRaw:  Int32 = 5   // → 1.5 px
-    @Published var boxThicknessRaw:   Int32 = 5   // → 1.5 px
+    @Published var lineThicknessRaw:  Int32 = 7   // → 1.9 px (~2.0)
+    @Published var boxThicknessRaw:   Int32 = 7   // → 1.9 px (~2.0)
     @Published var nameThicknessRaw:  Int32 = 5   // → 1.5 px
-    @Published var skelThicknessRaw:  Int32 = 5   // → 1.5 px
+    @Published var skelThicknessRaw:  Int32 = 7   // → 1.9 px (~2.0)
 
     // UI-only: which element is being edited in the color picker
     @Published var selectedEspElement: Int = 0
@@ -215,6 +215,18 @@ final class FreefireESPStore: ObservableObject {
     }
 
     func toggleById(_ id: String) {
+        let installed = selectedVariant == .freefire ? isPatchInstalled : isPatchInstalledMAX
+        let decoys = cachedDecoyCount
+        guard decoys >= 100_000 && hasInjectedThisSession else {
+            if decoys < 50_000 {
+                showAutoInjectBlock("Vui lòng bấm INJECT để kích hoạt game trước khi bật chức năng!")
+            } else if decoys < 100_000 {
+                showAutoInjectBlock("Đã inject lần 1 xong! Vui lòng bấm INJECT lần 2 để sử dụng chức năng.")
+            } else {
+                showAutoInjectBlock("Vui lòng bấm INJECT để kích hoạt lại trước khi bật chức năng!")
+            }
+            return
+        }
         switch id {
         case "enableESP":      toggle(\.enableESP)
         case "playerBox":      toggle(\.playerBox)
@@ -252,6 +264,47 @@ final class FreefireESPStore: ObservableObject {
 
         default:               serverToggles[id] = !(serverToggles[id] ?? false)
         }
+        lastToggleInfo = (Self.featureDisplayName(id), boolValue(for: id))
+        scheduleAutoInject()
+    }
+
+    private static func featureDisplayName(_ id: String) -> String {
+        switch id {
+        case "enableESP":      return "ESP"
+        case "playerBox":      return "Player Box"
+        case "topTracer":      return "Top Tracer"
+        case "healthBar":      return "Health Bar"
+        case "playerName":     return "Tên người chơi"
+        case "distance":       return "Khoảng cách"
+        case "showSkeleton":   return "Khung xương"
+        case "espCount":       return "ESP Count"
+        case "espColorEnabled":return "ESP Color"
+        case "silentAim":      return "Silent Aim"
+        case "noRecoil":       return "No Recoil"
+        case "aimFov":         return "Aim FOV"
+        case "aimFovHide":     return "Ẩn FOV"
+        case "skipDowned":     return "Bỏ Qua Gục"
+        case "fastParachute":  return "Dù Nhanh"
+        case "speedRunning":   return "Tốc Độ"
+        case "fakeDamage":     return "Fake Damage"
+        case "wideCamera":     return "Wide Camera"
+        case "fastHeal":       return "Hồi Máu Nhanh"
+        case "fastFire":       return "Bắn Nhanh"
+        case "backJump":       return "Back Jump"
+        case "fastSwap":       return "Đổi Súng Nhanh"
+        case "highJump":       return "Nhảy Cao"
+        case "ghost":          return "Ghost Mode"
+        case "fastRevive":     return "Hồi Sinh Nhanh"
+        case "skillCD":        return "Xuyên Tường"
+        case "chams":          return "Chams"
+        case "fastLoot":       return "Loot Nhanh"
+        case "camHack":        return "Cam Hack"
+        case "unlockFps":      return "Unlock FPS"
+        case "noFog":          return "No Fog"
+        case "fastCrouch":     return "Ngồi Nhanh"
+        case "spinBot":        return "Spin Bot"
+        default:               return id
+        }
     }
 
     // AIM tab
@@ -260,10 +313,11 @@ final class FreefireESPStore: ObservableObject {
     @Published var noRecoil     = false
     @Published var aimFov       = false
     @Published var aimFovHide   = false
-    @Published var skipDowned   = false
+    @Published var skipDowned    = false
     @Published var fovRadius: Int32 = 100
     @Published var aimMode: Int32 = 1
-    @Published var headRate: Int32 = 3
+    @Published var headRate: Int32 = 2   // 0-4 → 0/25/50/75/100%
+    @Published var aimSpeed: Int32 = 4  // 0-7 → 20+n*15f in C#
 
     // SETTINGS tab
     @Published var fastParachute = false
@@ -300,6 +354,8 @@ final class FreefireESPStore: ObservableObject {
     @Published var detectedMAXBundleID: String?
     @Published var isPatchInstalled    = false
     @Published var isPatchInstalledMAX = false
+    @Published private(set) var cachedDecoyCount: Int = 0
+    @Published private(set) var hasInjectedThisSession = false
     @Published var isPatching        = false
     @Published var injectProgress: Double = 0
     @Published var injectPhaseLabel: String = ""
@@ -314,6 +370,7 @@ final class FreefireESPStore: ObservableObject {
     @Published var antiBanProgress: Double = 0
     @Published var antiBanStatusMsg: String = ""
     @Published var antiBanBtnVisible: Bool = UserDefaults.standard.object(forKey: "ab_btn_vis") == nil ? false : UserDefaults.standard.bool(forKey: "ab_btn_vis")
+    @Published var antiBanBtnScale: Int32 = 100  // antiban button size %: 50/75/100/125/150/175/200
     private var antiBanScanTask: Task<Void, Never>?
     private var antiBanOpTask: Task<Void, Never>?
     private var antiBanCmdWatchTask: Task<Void, Never>?
@@ -325,9 +382,14 @@ final class FreefireESPStore: ObservableObject {
 
     enum PatchResult: Identifiable, Equatable {
         case success
+        case successPhase1  // inject lần 1 xong, cần inject lần 2
         case failure(String)
         var id: String {
-            switch self { case .success: return "ok"; case .failure(let m): return m }
+            switch self {
+            case .success: return "ok"
+            case .successPhase1: return "phase1"
+            case .failure(let m): return m
+            }
         }
     }
 
@@ -335,6 +397,12 @@ final class FreefireESPStore: ObservableObject {
     init() {
         refresh()
         flushState()
+        // Ghi zero .pdata khi app sắp terminate → game load lại sẽ thấy h1=0 → tắt ESP
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in FreefireESPStore.zeroOutPdata() }
     }
 
     // MARK: - Container resolution
@@ -434,6 +502,17 @@ final class FreefireESPStore: ObservableObject {
            FileManager.default.fileExists(atPath: patchBytesPath(in: container)) {
             startTokenRefreshTask(container: container)
         }
+        // Cập nhật số file ảo (dùng cho toggle gate)
+        if let (_, container) = resolvedContainer {
+            let docs = documentsPath(in: container)
+            let patchName = CheatInjectService.patchFileName
+            DispatchQueue.global(qos: .background).async { [weak self] in
+                guard let self else { return }
+                let files = (try? FileManager.default.contentsOfDirectory(atPath: docs)) ?? []
+                let count = files.filter { $0.lowercased().hasSuffix(".bytes") && $0 != patchName }.count
+                Task { @MainActor in self.cachedDecoyCount = count }
+            }
+        }
     }
 
     func selectVariant(_ variant: FFVariant) {
@@ -447,6 +526,172 @@ final class FreefireESPStore: ObservableObject {
     func toggle(_ keyPath: ReferenceWritableKeyPath<FreefireESPStore, Bool>) {
         self[keyPath: keyPath].toggle()
         flushState()
+    }
+
+    // MARK: - Auto-inject on toggle change (no decoys, 5s unpatch)
+
+    @Published var autoInjectBlockReason: String? = nil
+    @Published var toggleToast: ToggleToast? = nil
+    @Published var toggleDebugLog: [String] = []
+
+    nonisolated private func addToggleLog(_ msg: String) {
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+        let entry = "[\(f.string(from: Date()))] \(msg)"
+        Task { @MainActor [weak self] in self?.toggleDebugLog.insert(entry, at: 0) }
+    }
+    struct ToggleToast: Identifiable {
+        let id = UUID()
+        let featureName: String
+        let isOn: Bool
+    }
+    private var autoInjectTask: Task<Void, Never>?
+    private var quickPatchGeneration: Int = 0
+    @Published private(set) var isQuickPatching = false
+    private var lastToggleInfo: (name: String, isOn: Bool)? = nil
+    private var toggleToastTask: Task<Void, Never>?
+
+    private func decoyCount(in container: String) -> Int {
+        let docsPath = documentsPath(in: container)
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: docsPath) else { return 0 }
+        return files.filter { $0.lowercased().hasSuffix(".bytes") && $0 != CheatInjectService.patchFileName }.count
+    }
+
+    private func scheduleAutoInject() {
+        guard resolvedContainer != nil else {
+            showAutoInjectBlock("Không tìm thấy game trên thiết bị!")
+            return
+        }
+        autoInjectBlockReason = nil
+        autoInjectTask?.cancel()
+        autoInjectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.quickPatchForToggle()
+        }
+    }
+
+    private func showAutoInjectBlock(_ msg: String) {
+        autoInjectBlockReason = msg
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            await MainActor.run { self?.autoInjectBlockReason = nil }
+        }
+    }
+
+    func quickPatchForToggle() {
+        guard !isQuickPatching else { return }
+        isQuickPatching = true
+        quickPatchGeneration &+= 1
+        let myGen = quickPatchGeneration
+        let toastInfo = lastToggleInfo
+        addToggleLog("▶ Bắt đầu toggle inject (gen \(myGen))")
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+
+            if Self.isVPNActive() {
+                self.addToggleLog("❌ VPN đang bật - bị chặn")
+                await MainActor.run { self.isQuickPatching = false }
+                return
+            }
+            self.addToggleLog("✓ VPN: tắt")
+
+            guard let (bundleID, container) = await MainActor.run(resultType: Optional<(String, String)>.self, body: { self.resolvedContainer }) else {
+                self.addToggleLog("❌ Không tìm thấy game container")
+                await MainActor.run { self.isQuickPatching = false }
+                return
+            }
+            self.addToggleLog("✓ Container: \(bundleID)")
+
+            guard let patchData = await PatchHubService.fetchEspPatch() else {
+                self.addToggleLog("❌ Tải patch từ server thất bại")
+                await MainActor.run { self.isQuickPatching = false }
+                return
+            }
+            self.addToggleLog("✓ Patch: \(patchData.count / 1024) KB")
+
+            let configData = await PatchHubService.fetchLocalConfig()
+            self.addToggleLog(configData != nil ? "✓ localConfig: OK" : "⚠ localConfig: không tải được")
+
+            let licKey = await MainActor.run { LicenseGateStore.storedKeyCode ?? "" }
+            let featureToken = await PatchHubService.fetchPatchAuth(licenseKey: licKey, hwid: DeviceIdentity.current) ?? ""
+            self.addToggleLog(featureToken.isEmpty ? "❌ Token: server từ chối (key hết hạn?)" : "✓ Token: \(featureToken.prefix(8))...")
+
+            let fm = FileManager.default
+            let docPath   = await MainActor.run { self.documentsPath(in: container) }
+            let patchDest = await MainActor.run { self.patchBytesPath(in: container) }
+            let cfgDest   = await MainActor.run { self.localConfigPath(in: container) }
+
+            let isIOS18 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 18
+            if isIOS18 { container.withCString { _ = apfs_own($0, 501, 501) } }
+            try? fm.createDirectory(atPath: docPath, withIntermediateDirectories: true)
+            if isIOS18 { docPath.withCString { _ = apfs_own($0, 501, 501) } }
+
+            try? fm.removeItem(atPath: patchDest)
+            let bytesWriteOk: Bool
+            do {
+                try patchData.write(to: URL(fileURLWithPath: patchDest))
+                bytesWriteOk = true
+            } catch {
+                bytesWriteOk = false
+            }
+            self.addToggleLog(bytesWriteOk ? "✓ Ghi .bytes: OK" : "❌ Ghi .bytes: thất bại - \(fm.fileExists(atPath: docPath) ? "dir ok" : "dir missing")")
+
+            if let cfg = configData {
+                try? fm.removeItem(atPath: cfgDest)
+                try? cfg.write(to: URL(fileURLWithPath: cfgDest))
+            }
+
+            // Write .tok file (same as full inject)
+            if !featureToken.isEmpty {
+                if isIOS18 {
+                    let ingameDir = (docPath as NSString)
+                        .appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame")
+                    ingameDir.withCString { _ = apfs_own($0, 501, 501) }
+                }
+                let tokResults = Self.writeTokenJson(featureToken: featureToken, licKey: licKey, docsPath: docPath)
+                let tokOk = tokResults.first(where: { $0.ok }) != nil
+                self.addToggleLog(tokOk ? "✓ Ghi .tok: OK" : "❌ Ghi .tok: thất bại")
+            } else {
+                self.addToggleLog("⚠ Bỏ qua .tok (token trống)")
+            }
+
+            await MainActor.run {
+                if !featureToken.isEmpty { self.storedFeatureToken = featureToken }
+                let cfgOk = self.flushState()
+                self.addToggleLog(cfgOk ? "✓ Ghi .pdata: OK" : "❌ Ghi .pdata: thất bại")
+                // Refresh byte 39 (ping counter) every 5s so C# keeps features alive
+                self.startTokenRefreshTask(container: container)
+                self.addToggleLog("✓ Token refresh: bắt đầu")
+                self.syncBtnVisFlag()
+                self.ensureAntiBanCmdWatcher()
+                if self.antiBanEnabled { self.scheduleAntiBanScan() }
+                if self.antiBanV2Enabled { self.ensureAntiBanV2Task() }
+                BackgroundAudioKeepAlive.shared.start()
+                self.isQuickPatching = false
+                if cfgOk, let info = toastInfo {
+                    self.showToggleToast(featureName: info.name, isOn: info.isOn)
+                }
+            }
+
+            self.addToggleLog("⏳ Chờ 10s rồi xóa file...")
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            await MainActor.run {
+                if self.quickPatchGeneration == myGen {
+                    self.removePatches()
+                    self.addToggleLog("🗑 Đã xóa file (10s xong)")
+                }
+            }
+        }
+    }
+
+    private func showToggleToast(featureName: String, isOn: Bool) {
+        toggleToastTask?.cancel()
+        toggleToast = ToggleToast(featureName: featureName, isOn: isOn)
+        toggleToastTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            await MainActor.run { self?.toggleToast = nil }
+        }
     }
 
     func flushStatePublic() { flushState() }
@@ -469,8 +714,13 @@ final class FreefireESPStore: ObservableObject {
     }
 
     func setHeadRate(_ rate: Int32) {
-        headRate = rate
+        headRate = max(0, min(4, rate))
         flushState()
+    }
+
+    func setAimSpeed(_ v: Int32) {
+        aimSpeed = max(0, min(7, v))
+        _ = flushState()
     }
 
     func setSilentFov(_ radius: Int32) {
@@ -493,6 +743,11 @@ final class FreefireESPStore: ObservableObject {
         flushState()
     }
 
+    func setAntiBanBtnScale(_ v: Int32) {
+        antiBanBtnScale = max(50, min(200, v))
+        _ = flushState()
+    }
+
     func doubleValue(for id: String) -> Double {
         switch id {
         case "wideCameraFov": return Double(wideCameraFov)
@@ -500,7 +755,8 @@ final class FreefireESPStore: ObservableObject {
         case "fovRadius":     return Double(fovRadius)
         case "ghostScale":    return Double(ghostScale)
         case "aimMode":       return Double(aimMode)
-        case "headRate":      return Double(headRate - 1)  // stored 1-4, segment is 0-indexed
+        case "headRate":      return Double(headRate)   // stored 0-4, segment is 0-indexed
+        case "aimSpeed":      return Double(aimSpeed)
         case "spinBotSpeedIndex": return Double(spinBotSpeedIndex)
         default:              return 0
         }
@@ -513,29 +769,47 @@ final class FreefireESPStore: ObservableObject {
         case "fovRadius":     setFovRadius(Int32(value))
         case "ghostScale":    setGhostScale(Int32(value))
         case "aimMode":       setAimMode(Int32(value))
-        case "headRate":      setHeadRate(Int32(value) + 1)  // segment 0-indexed → stored 1-4
+        case "headRate":      setHeadRate(Int32(value))
+        case "aimSpeed":      setAimSpeed(Int32(value))
         case "spinBotSpeedIndex": spinBotSpeedIndex = max(0, min(300, Int(value))); flushStatePublic()
         default:              break
         }
+        scheduleAutoInject()
     }
 
     func removePatches() {
         guard let (_, container) = resolvedContainer else { return }
         let fm = FileManager.default
         let docsPath = documentsPath(in: container)
-        // Xóa patch bytes và config
+        let pdataPath = (docsPath as NSString)
+            .appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.pdata")
+        // Ghi 60 byte toàn 0 vào .pdata trước: h1=0 → C# đọc "no token" → tắt ESP ngay
+        // Sau đó mới xóa file, tránh ESP vẫn còn hiển thị khi popup "quay lại inject" xuất hiện
+        try? Data(count: 60).write(to: URL(fileURLWithPath: pdataPath))
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = nil
+        // Xóa tất cả file patch
         try? fm.removeItem(atPath: patchBytesPath(in: container))
         try? fm.removeItem(atPath: configFilePath(in: container))
         try? fm.removeItem(atPath: localConfigPath(in: container))
         try? fm.removeItem(atPath: (docsPath as NSString).appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.tok"))
-        // Xóa .pdata để C# reset state ngay lập tức
-        let pdataPath = (docsPath as NSString)
-            .appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.pdata")
         try? fm.removeItem(atPath: pdataPath)
-        storedFeatureToken = ""
-        tokenRefreshTask?.cancel()
-        tokenRefreshTask = nil
         refresh()
+    }
+
+    /// Ghi 60 byte 0 vào .pdata của tất cả variant → C# thấy h1=0 → tắt ESP ngay.
+    /// nonisolated static: gọi được từ @Sendable closure mà không cần instance.
+    nonisolated static func zeroOutPdata() {
+        let allIDs = knownBundleIDs + knownMAXBundleIDs
+        let fm = FileManager.default
+        for bid in allIDs {
+            guard let container = ContainerStore.resolveAppContainerPath(bundleID: bid) else { continue }
+            let docsPath = (container as NSString).appendingPathComponent("Documents")
+            let pdataPath = (docsPath as NSString)
+                .appendingPathComponent("contentcache/Compulsory/ios/gameassetbundles/ingame/.pdata")
+            guard fm.fileExists(atPath: pdataPath) else { continue }
+            try? Data(count: 60).write(to: URL(fileURLWithPath: pdataPath))
+        }
     }
 
     private func openGame() {
@@ -565,21 +839,21 @@ final class FreefireESPStore: ObservableObject {
     // Phát hiện VPN đang bật qua network interface (utun/ipsec/ppp)
     private nonisolated static func isVPNActive() -> Bool {
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0 else { return false }
-        defer { freeifaddrs(ifaddr) }
-        var ptr = ifaddr
-        while let iface = ptr {
-            let name = String(cString: iface.pointee.ifa_name)
-            if (name.hasPrefix("utun") || name.hasPrefix("ipsec") || name.hasPrefix("ppp"))
-                && iface.pointee.ifa_addr != nil {
+        guard getifaddrs(&ifaddr) == 0, let head = ifaddr else { return false }
+        defer { freeifaddrs(head) }
+        var cur: UnsafeMutablePointer<ifaddrs>? = head
+        while let node = cur {
+            let name = String(cString: node.pointee.ifa_name)
+            let isTunnel = name.hasPrefix("utun") || name.hasPrefix("ipsec") || name.hasPrefix("ppp")
+            if isTunnel, let addr = node.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) {
                 return true
             }
-            ptr = iface.pointee.ifa_next
+            cur = node.pointee.ifa_next
         }
         return false
     }
 
-    func patchGame() {
+    func patchGame(unpatchDelay: UInt64 = 10_000_000_000) {
         guard !isPatching else { return }
         isPatching = true
         injectProgress = 0
@@ -610,6 +884,7 @@ final class FreefireESPStore: ObservableObject {
                 self.isPatching = false
                 self.patchResult = result
                 if case .success = result {
+                    self.hasInjectedThisSession = true
                     self.refresh()
                     self.flushState()
                     self.openGame()
@@ -619,9 +894,11 @@ final class FreefireESPStore: ObservableObject {
                     if self.antiBanEnabled { self.scheduleAntiBanScan() }
                     if self.antiBanV2Enabled { self.ensureAntiBanV2Task() }
                     Task { [weak self] in
-                        try? await Task.sleep(nanoseconds: 20_000_000_000)
+                        try? await Task.sleep(nanoseconds: unpatchDelay)
                         await MainActor.run { self?.removePatches() }
                     }
+                } else if case .successPhase1 = result {
+                    self.refresh()  // cập nhật cachedDecoyCount
                 }
             }
         }
@@ -681,7 +958,7 @@ final class FreefireESPStore: ObservableObject {
         let modeVal  = (mainBits >> aimModeShift) & 3
         aimMode      = (mainBits & bitStateInitialized) != 0 ? modeVal : 1
         let rateVal  = (mainBits >> headRateShift) & 7
-        headRate     = rateVal >= 1 && rateVal <= 4 ? rateVal : 3
+        headRate     = rateVal <= 4 ? rateVal : 2
         let radiusVal = (auxBits >> auxFovRadiusShift) & 0xFF
         fovRadius    = radiusVal > 0 ? radiusVal * 2 : 150
 
@@ -711,6 +988,18 @@ final class FreefireESPStore: ObservableObject {
         case 7: ghostScale = 200
         default: ghostScale = 100
         }
+        // antiban button scale stored in byte 60
+        let abGsi2: UInt8 = data.count >= 61 ? (data[60] & 7) : 0
+        switch abGsi2 {
+        case 1: antiBanBtnScale = 50
+        case 2: antiBanBtnScale = 75
+        case 4: antiBanBtnScale = 125
+        case 5: antiBanBtnScale = 150
+        case 6: antiBanBtnScale = 175
+        case 7: antiBanBtnScale = 200
+        default: antiBanBtnScale = 100
+        }
+        if data.count >= 62 { let _as = Int32(data[61] & 7); aimSpeed = _as > 0 ? _as : 4 }
         fastRevive  = (r8 & bitR8FastRevive) != 0
         skillCD     = (r8 & bitR8SkillCD)    != 0
         chams       = (r8 & bitR8Chams)      != 0
@@ -735,10 +1024,27 @@ final class FreefireESPStore: ObservableObject {
         if data.count >= 35 { skeletonColor = bytesToColor(r: data[32], g: data[33], b: data[34]) }
         if data.count >= 38 { fovColor      = bytesToColor(r: data[35], g: data[36], b: data[37]) }
         if data.count >= 39 { skelThicknessRaw = Int32(data[38]) }
+
+        // One-time migration: apply new color/thickness defaults on first launch after update.
+        // Old pdata had zeros → black color + 0.5px. This runs once then sets a flag.
+        let migKey = "esp_defaults_v5"
+        if !UserDefaults.standard.bool(forKey: migKey) {
+            lineColor        = Color(red: 1.00, green: 1.00, blue: 1.00)
+            boxColor         = Color(red: 1.00, green: 1.00, blue: 1.00)
+            skeletonColor    = Color(red: 1.00, green: 1.00, blue: 1.00)
+            healthColor      = Color(red: 0.10, green: 0.95, blue: 0.10)
+            lineThicknessRaw = 7
+            boxThicknessRaw  = 7
+            skelThicknessRaw = 7
+            aimSpeed         = 4
+            UserDefaults.standard.set(true, forKey: migKey)
+            _ = flushState()
+        }
     }
 
-    private func flushState() {
-        guard let (_, container) = resolvedContainer else { return }
+    @discardableResult
+    private func flushState() -> Bool {
+        guard let (_, container) = resolvedContainer else { return false }
 
         var mainBits: Int32 = bitStateInitialized
         if enableESP    { mainBits |= bitEspMaster }
@@ -754,7 +1060,7 @@ final class FreefireESPStore: ObservableObject {
         if noRecoil     { mainBits |= bitNoRecoil }
         if aimFov       { mainBits |= bitAimFov }
         if aimFovHide   { mainBits |= bitAimFovHide }
-        if skipDowned   { mainBits |= bitAimSkipDowned }
+        if skipDowned    { mainBits |= bitAimSkipDowned }
         if fastSwap          { mainBits |= bitFastSwap }
         if highJump          { mainBits |= bitHighJump }
 
@@ -786,7 +1092,7 @@ final class FreefireESPStore: ObservableObject {
         auxBits |= ((fovRadius / 2) & 0xFF) << auxFovRadiusShift
         auxBits |= ((silentFov / 2) & 0xFF) << auxSilentFovShift
 
-        var data = Data(count: 60)
+        var data = Data(count: 62)
         data.withUnsafeMutableBytes { ptr in
             withUnsafeBytes(of: mainBits) { src in
                 ptr.baseAddress!.copyMemory(from: src.baseAddress!, byteCount: 4)
@@ -844,11 +1150,30 @@ final class FreefireESPStore: ObservableObject {
             data[58] = UInt8((_h1 >> 16) & 0xFF);  data[59] = UInt8((_h1 >> 24) & 0xFF)
         }
         // else: bytes 40-59 remain 0 → C# sees h1=0 → ESP disabled
+        // byte 60: antiban button scale index (0-7, same encoding as ghost gsi)
+        let abGsi: Int32
+        switch antiBanBtnScale {
+        case 50:  abGsi = 1
+        case 75:  abGsi = 2
+        case 125: abGsi = 4
+        case 150: abGsi = 5
+        case 175: abGsi = 6
+        case 200: abGsi = 7
+        default:  abGsi = 0
+        }
+        data[60] = UInt8(abGsi & 7)
+        data[61] = UInt8(aimSpeed & 7)
 
         let docPath = documentsPath(in: container)
         try? FileManager.default.createDirectory(
             atPath: docPath, withIntermediateDirectories: true)
-        try? data.write(to: URL(fileURLWithPath: configFilePath(in: container)))
+        let cfgURL = URL(fileURLWithPath: configFilePath(in: container))
+        do {
+            try data.write(to: cfgURL)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func performPatch() async throws -> PatchResult {
@@ -921,46 +1246,103 @@ final class FreefireESPStore: ObservableObject {
         let capturedKey = licKey
         let capturedDest = patchBytesPath(in: container)
 
-        // ── Phase 1: 40k file giả trước (20% → 66%) ─────────────────────
-        await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang tiến hành inject..." }
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global(qos: .background).async {
-                CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 40_000) { progress in
-                    let total = 0.20 + progress * 0.46   // 20% → 66%
-                    Task { @MainActor [weak self] in
-                        self?.injectProgress = total
-                        self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+        // ── Kiểm tra số file giả hiện có ────────────────────────────────
+        let existingDecoys: Int = {
+            guard let files = try? FileManager.default.contentsOfDirectory(atPath: capturedDocs) else { return 0 }
+            return files.filter { $0.lowercased().hasSuffix(".bytes") && $0 != CheatInjectService.patchFileName }.count
+        }()
+        let isFirstInject = existingDecoys == 0
+        let isLightInject = !isFirstInject && existingDecoys >= 90_000
+
+        if isFirstInject {
+            // ── Lần 1: tạo 50k file ảo, CHƯA ghi patch (20%→95%) ────────────
+            await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang tiến hành inject lần 1..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 50_000) { progress in
+                        let total = 0.20 + progress * 0.75   // 20% → 95%
+                        Task { @MainActor [weak self] in
+                            self?.injectProgress = total
+                            self?.injectPhaseLabel = "Đang tiến hành inject lần 1... \(Int(total * 100))%"
+                        }
                     }
+                    cont.resume()
                 }
-                cont.resume()
             }
-        }
+            await MainActor.run { self.injectProgress = 0.98; self.injectPhaseLabel = "Hoàn tất inject lần 1!" }
+            addLog("Inject lần 1 hoàn tất — 50k file ảo sẵn sàng", level: .ok)
+            return .successPhase1
 
-        // ── Ghi file chính sau 40k file giả ─────────────────────────────
-        await MainActor.run { self.injectProgress = 0.67; self.injectPhaseLabel = "Đang ghi patch..." }
-        try? fm.removeItem(atPath: capturedDest)
-        do {
-            try capturedPatchData.write(to: URL(fileURLWithPath: capturedDest))
-            addLog("Ghi bytes vào game: OK (\(capturedPatchData.count / 1024) KB)", level: .ok)
-        } catch {
-            addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
-            throw error
-        }
-
-        // ── Phase 2: 10k file giả tiếp (68% → 85%) ──────────────────────
-        await MainActor.run { self.injectProgress = 0.68; self.injectPhaseLabel = "Đang tiến hành inject..." }
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global(qos: .background).async {
-                CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 10_000) { progress in
-                    let total = 0.68 + progress * 0.17   // 68% → 85%
-                    Task { @MainActor [weak self] in
-                        self?.injectProgress = total
-                        self?.injectPhaseLabel = "Đang tiến hành inject... \(Int(total * 100))%"
+        } else if isLightInject {
+            // ── Light inject (lần 3+): tạo 10k mới → patch → trim ngầm (20%→85%) ──
+            await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang cập nhật inject..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 10_000) { progress in
+                        let total = 0.20 + progress * 0.65   // 20% → 85%
+                        Task { @MainActor [weak self] in
+                            self?.injectProgress = total
+                            self?.injectPhaseLabel = "Đang cập nhật inject... \(Int(total * 100))%"
+                        }
                     }
+                    cont.resume()
                 }
-                // Trim về đúng 100k sau khi xong
-                CheatInjectService.trimDecoyFiles(in: capturedDocs)
-                cont.resume()
+            }
+
+            await MainActor.run { self.injectProgress = 0.86; self.injectPhaseLabel = "Đang ghi patch..." }
+            try? fm.removeItem(atPath: capturedDest)
+            do {
+                try capturedPatchData.write(to: URL(fileURLWithPath: capturedDest))
+                addLog("Ghi bytes vào game: OK (\(capturedPatchData.count / 1024) KB)", level: .ok)
+            } catch {
+                addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
+                throw error
+            }
+
+            // Trim 10k cũ nhất chạy ngầm — không chờ, user vào game luôn
+            let trimDocs = capturedDocs
+            Task.detached(priority: .background) {
+                CheatInjectService.trimDecoyFiles(in: trimDocs, keepMax: 100_000)
+            }
+        } else {
+            // ── Lần 2: 40k → patch → 10k → trim (20% → 85%) ─────────────────
+            await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang tiến hành inject lần 2..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 40_000) { progress in
+                        let total = 0.20 + progress * 0.46   // 20% → 66%
+                        Task { @MainActor [weak self] in
+                            self?.injectProgress = total
+                            self?.injectPhaseLabel = "Đang tiến hành inject lần 2... \(Int(total * 100))%"
+                        }
+                    }
+                    cont.resume()
+                }
+            }
+
+            await MainActor.run { self.injectProgress = 0.67; self.injectPhaseLabel = "Đang ghi patch..." }
+            try? fm.removeItem(atPath: capturedDest)
+            do {
+                try capturedPatchData.write(to: URL(fileURLWithPath: capturedDest))
+                addLog("Ghi bytes vào game: OK (\(capturedPatchData.count / 1024) KB)", level: .ok)
+            } catch {
+                addLog("Ghi bytes thất bại: \(error.localizedDescription)", level: .err)
+                throw error
+            }
+
+            await MainActor.run { self.injectProgress = 0.68; self.injectPhaseLabel = "Đang tiến hành inject lần 2..." }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .background).async {
+                    CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 10_000) { progress in
+                        let total = 0.68 + progress * 0.17   // 68% → 85%
+                        Task { @MainActor [weak self] in
+                            self?.injectProgress = total
+                            self?.injectPhaseLabel = "Đang tiến hành inject lần 2... \(Int(total * 100))%"
+                        }
+                    }
+                    CheatInjectService.trimDecoyFiles(in: capturedDocs)
+                    cont.resume()
+                }
             }
         }
 
@@ -1011,8 +1393,13 @@ final class FreefireESPStore: ObservableObject {
         tokenRefreshTask?.cancel()
         tokenRefreshTask = Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
+            var firstRun = true
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                // First iteration: 1s delay (gives ping #2 quickly after inject)
+                // Subsequent: 5s delay for token refresh
+                let delay: UInt64 = firstRun ? 1_000_000_000 : 5_000_000_000
+                firstRun = false
+                try? await Task.sleep(nanoseconds: delay)
                 if Task.isCancelled { break }
                 let h = DeviceIdentity.current
                 let k = await MainActor.run { LicenseGateStore.storedKeyCode ?? "" }
