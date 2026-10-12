@@ -657,6 +657,33 @@ struct FreefireESPHomeSection: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 13)
 
+            // Auto AntiBan toggle row
+            Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5).padding(.horizontal, 16)
+            HStack(spacing: 10) {
+                Image(systemName: "bolt.shield.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(store.autoAntiBanEnabled ? purple : Color(white: 0.4))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Tự Động (Radar Detect)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(store.autoAntiBanEnabled ? .white : Color(white: 0.55))
+                    Text("Vào trận → tự bật  ·  Thoát trận → tự tắt")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color(white: 0.38))
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { store.autoAntiBanEnabled },
+                    set: { store.setAutoAntiBan($0) }
+                ))
+                .labelsHidden()
+                .tint(purple)
+                .scaleEffect(0.85)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(store.autoAntiBanEnabled ? purple.opacity(0.08) : Color.clear)
+            .animation(.easeInOut(duration: 0.2), value: store.autoAntiBanEnabled)
+
             // Progress panel (shown during enable/disable operation)
             if !store.antiBanStatusMsg.isEmpty {
                 Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5).padding(.horizontal, 16)
