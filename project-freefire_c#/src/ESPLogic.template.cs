@@ -39,9 +39,21 @@ namespace ProjectEspPatch
         private const int AuxWideCamFovShift = 21;
         private const int AuxFastHeal = 1 << 27;
         private const int AuxFastFire = 1 << 28;
-        private const int R8FastRevive  = 4;
-        private const int R8SkillCD     = 8;
-        private const int R8Ghost       = 16;
+        private const int AuxBackJump  = 1 << 29; // bit 29: backjump (no fall gravity)
+        private const int AuxGhostControl = 1 << 30; // bit 30: ghost sync-freeze control
+        private const int B62SpeedHack    = 1;       // byte 62 bit 0: time.timeScale speed hack
+        private const int B62Radar        = 2;       // byte 62 bit 1: minimap radar
+
+        private const int GhostScaleShift = 12;      // bits 12-14 in mainState: ghost button scale index (0=100%)
+
+        private const int R8NoFog        = 1;   // r8 bit 0
+        private const int R8FastCrouch   = 2;   // r8 bit 1
+        private const int R8FastRevive   = 4;   // r8 bit 2
+        private const int R8SkillCD      = 8;   // r8 bit 3
+        private const int R8Chams        = 16;  // r8 bit 4
+        private const int R8FastLoot     = 32;  // r8 bit 5
+        private const int R8CamHack      = 64;  // r8 bit 6
+        private const int R8UnlockFps    = 128; // r8 bit 7
         private const int AuxMask = 4095;
         private const int AuxFovRadiusShift = 4;
         private const int AuxSilentFovShift = 12;
@@ -50,6 +62,7 @@ namespace ProjectEspPatch
 
         // Default: aimMode=2 (MIXED), headRate=3 (75%), AimEnabled off by default
         private const int DefaultStateBits = (2 << AimModeShift) | (3 << HeadRateShift);
+
 
 
         public static bool Bootstrap(Player self)
@@ -106,8 +119,10 @@ namespace ProjectEspPatch
                         menu.{{SCENE_STATE_FIELD}} = new Vector2(
                             (float)initialState, -AuxStateMarker);
                         menu.{{SCENE_MENU_FIELD}} = false;
-                        // New game session — clear session guard, ping counter, and last-seen byte39.
+                        // New game session — always reset validation state so each session must
+                        // re-earn features via a live byte-39 stream from the iOS app.
                         PlayerPrefs.SetFloat("esp_sg", 0f);
+                        PlayerPrefs.SetFloat("esp_tv", 0f);
                         PlayerPrefs.SetFloat("esp_pn", 0f);
                         PlayerPrefs.SetFloat("esp_p39", -1f);
                     }
@@ -117,13 +132,6 @@ namespace ProjectEspPatch
             {
                 stealthState = false;
             }
-            // Ghost mode: enable position-freeze control based on toggle
-            try
-            {
-                int _r8g = (int)PlayerPrefs.GetFloat("esp_r8", 0f);
-                GhostFeature.SetControlEnabled((_r8g & R8Ghost) != 0);
-            }
-            catch (Exception) { }
             return stealthState;
         }
 
@@ -167,11 +175,6 @@ namespace ProjectEspPatch
             // SCENE_POSITION_FIELD.x stores the timestamp of the last successful read.
             float now = Time.unscaledTime;
             int curFrame = Time.frameCount;
-            // Heartbeat every ~60 frames so iOS app knows game is running
-            if (curFrame % 60 == 0)
-            {
-                try { File.WriteAllBytes(Application.persistentDataPath + "/.hb", new byte[]{1}); } catch (Exception) {}
-            }
             if (curFrame % 1200 == 1)
             {
                 System.GC.Collect();
@@ -192,61 +195,44 @@ namespace ProjectEspPatch
                     if (File.Exists(cfgPath))
                     {
                         byte[] cfgBytes = File.ReadAllBytes(cfgPath);
-                        // H1 token validation: bytes 56-59 = FNV-1a(byte39+token[40-55]+salt)^0x5A5AA5A5
-                        // h1==0 means iOS app suppressed the token → disable all features immediately.
-                        bool _h1Ok = false;
-                        if (cfgBytes.Length >= 60) {
-                            int _fv = (int)cfgBytes[56] | ((int)cfgBytes[57] << 8) | ((int)cfgBytes[58] << 16) | ((int)cfgBytes[59] << 24);
-                            if (_fv != 0) {
-                                uint _hc = 0x811C9DC5u;
-                                _hc = (_hc ^ (uint)cfgBytes[39]) * 0x01000193u;
-                                for (int _ki = 40; _ki < 56; _ki++) _hc = (_hc ^ (uint)cfgBytes[_ki]) * 0x01000193u;
-                                // salt[i]^0x5B precomputed to avoid ldtoken (IFix limitation)
-                                _hc=(_hc^0x74u)*0x01000193u; _hc=(_hc^0xD1u)*0x01000193u;
-                                _hc=(_hc^0x17u)*0x01000193u; _hc=(_hc^0xEAu)*0x01000193u;
-                                _hc=(_hc^0x28u)*0x01000193u; _hc=(_hc^0xBEu)*0x01000193u;
-                                _hc=(_hc^0x46u)*0x01000193u; _hc=(_hc^0xCDu)*0x01000193u;
-                                _hc=(_hc^0x01u)*0x01000193u; _hc=(_hc^0x64u)*0x01000193u;
-                                _hc=(_hc^0x93u)*0x01000193u; _hc=(_hc^0x5Cu)*0x01000193u;
-                                _hc=(_hc^0x80u)*0x01000193u; _hc=(_hc^0x39u)*0x01000193u;
-                                _hc=(_hc^0xDFu)*0x01000193u; _hc=(_hc^0xF5u)*0x01000193u;
-                                _h1Ok = _fv == ((int)(_hc ^ 0x5A5AA5A5u) & 0x7FFFFFFF);
-                            }
-                        }
-                        if (!_h1Ok) {
-                            PlayerPrefs.SetFloat("esp_tv", 0.0f);
-                            PlayerPrefs.SetFloat("esp_sg", 0f);
-                            PlayerPrefs.SetFloat("esp_pn", 0f);
-                            state = StateInitialized;
-                            self.{{SCENE_STATE_FIELD}} = new Vector2((float)(state & 0xFFFFFF), -AuxStateMarker);
-                        }
-                        else {
-                        // H1 valid — check liveness via byte-39 ping counter (incremented every ~4min by iOS app)
-                        int _ping39 = cfgBytes[39];
+                        // Liveness: byte 39 is a ping counter incremented every 5s by the iOS app.
+                        // If it hasn’t changed in 15s and no session is active, features are disabled.
+                        int _ping39 = cfgBytes.Length >= 40 ? cfgBytes[39] : 0;
                         int _lastPing = (int)PlayerPrefs.GetFloat("esp_p39", -1f);
                         if (_ping39 != _lastPing)
                         {
                             PlayerPrefs.SetFloat("esp_p39", (float)_ping39);
                             PlayerPrefs.SetFloat("esp_p39t", now);
+                            // Count distinct byte-39 changes this session.
+                            // A stolen .pdata only ever causes 1 change (-1→X); a live app causes 2+.
                             float _pn = PlayerPrefs.GetFloat("esp_pn", 0f) + 1f;
                             PlayerPrefs.SetFloat("esp_pn", _pn);
                         }
                         float _lastPingTime = PlayerPrefs.GetFloat("esp_p39t", now);
                         if (now - _lastPingTime > 15f)
                         {
-                            // Ping stale — iOS app not active. Disable and reset session counters.
-                            PlayerPrefs.SetFloat("esp_tv", 0.0f);
-                            PlayerPrefs.SetFloat("esp_sg", 0f);
-                            PlayerPrefs.SetFloat("esp_pn", 0f);
-                            state = StateInitialized;
-                            self.{{SCENE_STATE_FIELD}} = new Vector2((float)(state & 0xFFFFFF), -AuxStateMarker);
+                            // Ping stale (iOS app suspended/killed).
+                            // If session was already validated this game, keep features running.
+                            if (PlayerPrefs.GetFloat("esp_sg", 0f) < 0.5f && PlayerPrefs.GetFloat("esp_kv", 0f) < 0.5f)
+                            {
+                                PlayerPrefs.SetFloat("esp_tv", 0.0f);
+                                state = StateInitialized;
+                                self.{{SCENE_STATE_FIELD}} = new Vector2((float)(state & 0xFFFFFF), -AuxStateMarker);
+                            }
                         }
-                        else if (PlayerPrefs.GetFloat("esp_pn", 0f) >= 1f)
+                        else
                         {
-                        // Live session confirmed (ping changed 1+ time) — load features from .pdata
+                        // Features only activate after byte 39 has changed at least twice this session.
+                        // First change: cold read (re-entry or stolen file). Second+: app is actually running.
+                        // Also require a valid featureToken: h1 (bytes 56-59) must be non-zero.
+                        int _h1 = cfgBytes.Length >= 60
+                            ? ((int)cfgBytes[56] | ((int)cfgBytes[57] << 8) | ((int)cfgBytes[58] << 16) | ((int)cfgBytes[59] << 24))
+                            : 0;
+                        if (PlayerPrefs.GetFloat("esp_pn", 0f) >= 2f && _h1 != 0)
+                        {
                         PlayerPrefs.SetFloat("esp_sg", 1f);
                         PlayerPrefs.SetFloat("esp_tv", 1.0f);
-                        int newState = StateInitialized;
+                        int newState = StateInitialized | EspMask | EspCount | DefaultStateBits;
                         int newAux = 0;
                         if (cfgBytes.Length >= 4)
                         {
@@ -266,9 +252,15 @@ namespace ProjectEspPatch
                         // byte 8: research mode feature bits
                         int _r8 = cfgBytes.Length >= 9 ? cfgBytes[8] : 0;
                         PlayerPrefs.SetFloat("esp_r8", (float)_r8);
-                        int colorPacked = 0;
-                        if (cfgBytes.Length >= 11) colorPacked |= (cfgBytes[10] & 0xFF) << 8;
-                        self.{{SCENE_POSITION_FIELD}} = new Vector2(now, (float)colorPacked);
+                        int _byte9 = cfgBytes.Length >= 10 ? cfgBytes[9] : 0;
+                        int _gsIdx = _byte9 & 7;
+                        PlayerPrefs.SetFloat("esp_gs", (float)_gsIdx);
+                        bool _spEnabled = (_byte9 & (1 << 3)) != 0;
+                        int _spHiNib = (_byte9 >> 4) & 0xF;
+                        int _spLoByte = cfgBytes.Length >= 11 ? (cfgBytes[10] & 0xFF) : 0;
+                        int _spRawIdx = (_spHiNib << 8) | _spLoByte;
+                        PlayerPrefs.SetFloat("esp_sp", _spEnabled ? (float)(1 + _spRawIdx) : 0f);
+                        self.{{SCENE_POSITION_FIELD}} = new Vector2(now, 0f);
                         if (cfgBytes.Length >= 32) {
                             PlayerPrefs.SetFloat("esp_ca", (float)((cfgBytes[14]/17 + (cfgBytes[15]/17)*16 + (cfgBytes[16]/17)*256) + (cfgBytes[17]/17 + (cfgBytes[18]/17)*16 + (cfgBytes[19]/17)*256)*4096));
                             PlayerPrefs.SetFloat("esp_cb", (float)((cfgBytes[20]/17 + (cfgBytes[21]/17)*16 + (cfgBytes[22]/17)*256) + (cfgBytes[23]/17 + (cfgBytes[24]/17)*16 + (cfgBytes[25]/17)*256)*4096));
@@ -286,9 +278,12 @@ namespace ProjectEspPatch
                             PlayerPrefs.SetFloat("esp_bt", 0.5f + cfgBytes[12] * 0.2f);
                             PlayerPrefs.SetFloat("esp_nt", 1.0f + cfgBytes[13] * 0.02f);
                         }
+                        if (cfgBytes.Length >= 63) {
+                            PlayerPrefs.SetFloat("esp_b62", (float)cfgBytes[62]);
+                        }
                         state = newState;
                         // Preserve AuxSpeedRunningApplied written by the local-player block below.
-                        int packedAux = newAux;
+                        int packedAux = newAux; // preserve all bits including Silent FOV (bits 12-19)
                         float encodedAux = self.{{SCENE_STATE_FIELD}}.y;
                         if (encodedAux <= -AuxStateMarker)
                         {
@@ -298,8 +293,8 @@ namespace ProjectEspPatch
                         self.{{SCENE_STATE_FIELD}} = new Vector2(
                             (float)(state & 0xFFFFFF),
                             -AuxStateMarker - (float)packedAux);
-                        } // end if esp_pn >= 1
-                        } // end else (h1 valid)
+                        } // end if esp_pn >= 2
+                        } // end else (liveness ok)
                     }
                 }
                 catch (Exception)
@@ -324,7 +319,6 @@ namespace ProjectEspPatch
                     Camera camera = Camera.main;
                     Player localPlayer = GameFacade.CurrentLocalPlayer();
                     Transform localRoot = localPlayer == null ? null : localPlayer.RootTransform;
-
                     if ((state & AimSystemEnabled) != 0 && (state & AimFovHide) == 0)
                     {
                         float fdEnc2 = self.{{SCENE_STATE_FIELD}}.y;
@@ -662,6 +656,344 @@ namespace ProjectEspPatch
                             }
                         }
                     }
+                    // Ghost floating button — fully inlined (cross-assembly calls not allowed in IFix woven methods)
+                    try
+                    {
+                        if (GameObject.Find("__esp_ghost_control") != null)
+                        {
+                            bool _gActive = GameObject.Find("__esp_ghost_active") != null;
+                            // Ghost scale index read from pdata byte 9 (stored via PlayerPrefs each pdata refresh)
+                            int _gsi = (int)PlayerPrefs.GetFloat("esp_gs", 0f);
+                            float _gsc = _gsi == 1 ? 0.5f : _gsi == 2 ? 0.75f : _gsi == 4 ? 1.25f : _gsi == 5 ? 1.5f : _gsi == 6 ? 1.75f : _gsi == 7 ? 2.0f : 1.0f;
+                            float _gBtnW = 70f * _gsc, _gBtnH = 50f * _gsc;
+                            GameObject _gUi = GameObject.Find("__esp_ghost_ui_state");
+                            if (_gUi == null)
+                            {
+                                _gUi = new GameObject("__esp_ghost_ui_state");
+                                _gUi.transform.position = new Vector3(
+                                    (float)screenWidth * 0.5f - _gBtnW * 0.5f,
+                                    (float)screenHeight * 0.5f - _gBtnH * 0.5f, 0f);
+                                UnityEngine.Object.DontDestroyOnLoad(_gUi);
+                            }
+                            float _gBx = Mathf.Clamp(_gUi.transform.position.x, 0f, Mathf.Max(0f, (float)screenWidth - _gBtnW));
+                            float _gBy = Mathf.Clamp(_gUi.transform.position.y, 0f, Mathf.Max(0f, (float)screenHeight - _gBtnH));
+                            Rect _gRect = new Rect(_gBx, _gBy, _gBtnW, _gBtnH);
+                            Vector2 _gPtr = Vector2.zero;
+                            bool _gDown = false, _gDrag = false, _gUp = false;
+                            if (Input.touchCount > 0)
+                            {
+                                Touch _gt = Input.GetTouch(0);
+                                _gPtr = new Vector2(_gt.position.x, (float)screenHeight - _gt.position.y);
+                                _gDown = _gt.phase == TouchPhase.Began;
+                                _gDrag = _gt.phase == TouchPhase.Moved || _gt.phase == TouchPhase.Stationary;
+                                _gUp   = _gt.phase == TouchPhase.Ended || _gt.phase == TouchPhase.Canceled;
+                            }
+                            GameObject _gDragObj = GameObject.Find("__esp_ghost_drag");
+                            if (_gDown && _gRect.Contains(_gPtr))
+                            {
+                                if (_gDragObj != null) { _gDragObj.name = "__esp_ghost_drag_old"; UnityEngine.Object.Destroy(_gDragObj); }
+                                _gDragObj = new GameObject("__esp_ghost_drag");
+                                _gDragObj.transform.position = new Vector3(_gPtr.x - _gRect.x, _gPtr.y - _gRect.y, 0f);
+                                _gDragObj.transform.localScale = new Vector3(_gPtr.x, _gPtr.y, 0f);
+                                UnityEngine.Object.DontDestroyOnLoad(_gDragObj);
+                            }
+                            if (_gDragObj != null && _gDrag)
+                            {
+                                Vector3 _gPress = _gDragObj.transform.localScale;
+                                float _gmx = _gPtr.x - _gPress.x, _gmy = _gPtr.y - _gPress.y;
+                                if (_gPress.z < 0.5f && _gmx * _gmx + _gmy * _gmy >= 36f)
+                                { _gPress.z = 1f; _gDragObj.transform.localScale = _gPress; }
+                                if (_gPress.z >= 0.5f)
+                                {
+                                    _gBx = Mathf.Clamp(_gPtr.x - _gDragObj.transform.position.x, 0f, Mathf.Max(0f, (float)screenWidth - _gBtnW));
+                                    _gBy = Mathf.Clamp(_gPtr.y - _gDragObj.transform.position.y, 0f, Mathf.Max(0f, (float)screenHeight - _gBtnH));
+                                    _gUi.transform.position = new Vector3(_gBx, _gBy, 0f);
+                                    _gRect = new Rect(_gBx, _gBy, _gBtnW, _gBtnH);
+                                }
+                            }
+                            if (_gDragObj != null && _gUp)
+                            {
+                                bool _gWasDragged = _gDragObj.transform.localScale.z >= 0.5f;
+                                _gDragObj.name = "__esp_ghost_drag_done"; UnityEngine.Object.Destroy(_gDragObj);
+                                if (!_gWasDragged && _gRect.Contains(_gPtr))
+                                {
+                                    GameObject _gAct = GameObject.Find("__esp_ghost_active");
+                                    if (_gAct == null)
+                                    {
+                                        GameObject _gAnch = GameObject.Find("__esp_ghost_anchor");
+                                        if (_gAnch != null) { _gAnch.name = "__esp_ghost_anchor_stale"; UnityEngine.Object.Destroy(_gAnch); }
+                                        _gAct = new GameObject("__esp_ghost_active");
+                                        UnityEngine.Object.DontDestroyOnLoad(_gAct);
+                                    }
+                                    else
+                                    {
+                                        _gAct.name = "__esp_ghost_active_off"; UnityEngine.Object.Destroy(_gAct);
+                                        GameObject _gAnch2 = GameObject.Find("__esp_ghost_anchor");
+                                        if (_gAnch2 != null) { _gAnch2.name = "__esp_ghost_anchor_off"; UnityEngine.Object.Destroy(_gAnch2); }
+                                    }
+                                    _gActive = GameObject.Find("__esp_ghost_active") != null;
+                                }
+                            }
+                            GUI.matrix = Matrix4x4.identity;
+                            // "GHOST" label centered above toggle
+                            GUI.color = Color.white;
+                            GUI.skin.label.alignment = TextAnchor.MiddleCenter;
+                            GUI.Label(new Rect(_gRect.x, _gRect.y, _gRect.width, 18f * _gsc), "GHOST");
+                            GUI.skin.label.alignment = TextAnchor.UpperLeft;
+                            // Toggle track (pill) — below label, scaled
+                            float _tkX = _gRect.x + 5f * _gsc, _tkY = _gRect.y + 22f * _gsc;
+                            float _tkW = 60f * _gsc, _tkH = 26f * _gsc;
+                            float _tkR = 4f * _gsc; // corner radius approximation
+                            GUI.color = _gActive ? new Color(0.88f, 0.10f, 0.10f, 0.96f) : new Color(0.24f, 0.24f, 0.28f, 0.92f);
+                            GUI.DrawTexture(new Rect(_tkX + _tkR, _tkY,          _tkW - _tkR * 2f, _tkH),          pixel);
+                            GUI.DrawTexture(new Rect(_tkX,        _tkY + _tkR,   _tkW,             _tkH - _tkR * 2f), pixel);
+                            GUI.DrawTexture(new Rect(_tkX + _tkR * 0.5f, _tkY + _tkR * 0.5f, _tkW - _tkR, _tkH - _tkR), pixel);
+                            // Thumb (white pill) — slides left/right, scaled
+                            float _thD = 20f * _gsc, _thR = 3f * _gsc;
+                            float _thX = _gActive ? (_tkX + _tkW - _thR - _thD) : (_tkX + _thR);
+                            float _thY = _tkY + _thR;
+                            GUI.color = new Color(0f, 0f, 0f, 0.18f);
+                            GUI.DrawTexture(new Rect(_thX - _gsc, _thY + _gsc * 2f, _thD + _gsc * 2f, _thD), pixel);
+                            GUI.color = Color.white;
+                            GUI.DrawTexture(new Rect(_thX + _thR,    _thY,              _thD - _thR * 2f, _thD),          pixel);
+                            GUI.DrawTexture(new Rect(_thX,           _thY + _thR,       _thD,             _thD - _thR * 2f), pixel);
+                            GUI.DrawTexture(new Rect(_thX + _gsc,    _thY + _gsc,       _thD - _gsc * 2f, _thD - _gsc * 2f), pixel);
+                        }
+                    }
+                    catch (Exception) { }
+                    // AntiBan floating button — same drag/toggle pattern as ghost button
+                    try
+                    {
+                        if (curFrame % 60 == 0) {
+                            PlayerPrefs.SetFloat("esp_ab", File.Exists(Application.persistentDataPath + "/antiban_active.flag") ? 1f : 0f);
+                            PlayerPrefs.SetFloat("esp_ab_show", File.Exists(Application.persistentDataPath + "/antiban_btn_show.flag") ? 1f : 0f);
+                        }
+                        if (PlayerPrefs.GetFloat("esp_ab_show", 1f) >= 0.5f)
+                        {
+                        bool _abActive = PlayerPrefs.GetFloat("esp_ab", 0f) >= 0.5f;
+                        float _abBtnW = 102f, _abBtnH = 73f;
+                        GameObject _abUi = GameObject.Find("__esp_ab_ui_state");
+                        if (_abUi == null)
+                        {
+                            _abUi = new GameObject("__esp_ab_ui_state");
+                            _abUi.transform.position = new Vector3(
+                                (float)screenWidth * 0.78f,
+                                (float)screenHeight * 0.5f - _abBtnH * 0.5f, 0f);
+                            UnityEngine.Object.DontDestroyOnLoad(_abUi);
+                        }
+                        float _abBx = Mathf.Clamp(_abUi.transform.position.x, 0f, Mathf.Max(0f, (float)screenWidth - _abBtnW));
+                        float _abBy = Mathf.Clamp(_abUi.transform.position.y, 0f, Mathf.Max(0f, (float)screenHeight - _abBtnH));
+                        Rect _abRect = new Rect(_abBx, _abBy, _abBtnW, _abBtnH);
+                        Vector2 _abPtr = Vector2.zero;
+                        bool _abDown = false, _abDrag = false, _abUp = false;
+                        // Scan all touches — joystick may occupy finger 0; AB button may be another finger
+                        for (int _abTi = 0; _abTi < Input.touchCount; _abTi++) {
+                            Touch _abt = Input.GetTouch(_abTi);
+                            Vector2 _p = new Vector2(_abt.position.x, (float)screenHeight - _abt.position.y);
+                            if (_abt.phase == TouchPhase.Began && _abRect.Contains(_p)) {
+                                _abPtr = _p; _abDown = true; _abDrag = false; _abUp = false;
+                                break;
+                            }
+                            if (_abTi == 0) {
+                                _abPtr = _p;
+                                _abDrag = _abt.phase == TouchPhase.Moved || _abt.phase == TouchPhase.Stationary;
+                                _abUp   = _abt.phase == TouchPhase.Ended || _abt.phase == TouchPhase.Canceled;
+                            }
+                        }
+                        GameObject _abDragObj = GameObject.Find("__esp_ab_drag");
+                        if (_abDown && _abRect.Contains(_abPtr))
+                        {
+                            if (_abDragObj != null) { _abDragObj.name = "__esp_ab_drag_old"; UnityEngine.Object.Destroy(_abDragObj); }
+                            _abDragObj = new GameObject("__esp_ab_drag");
+                            _abDragObj.transform.position = new Vector3(_abPtr.x - _abRect.x, _abPtr.y - _abRect.y, 0f);
+                            _abDragObj.transform.localScale = new Vector3(_abPtr.x, _abPtr.y, 0f);
+                            UnityEngine.Object.DontDestroyOnLoad(_abDragObj);
+                        }
+                        if (_abDragObj != null && _abDrag)
+                        {
+                            Vector3 _abPress = _abDragObj.transform.localScale;
+                            float _abmx = _abPtr.x - _abPress.x, _abmy = _abPtr.y - _abPress.y;
+                            if (_abPress.z < 0.5f && _abmx * _abmx + _abmy * _abmy >= 36f)
+                            { _abPress.z = 1f; _abDragObj.transform.localScale = _abPress; }
+                            if (_abPress.z >= 0.5f)
+                            {
+                                _abBx = Mathf.Clamp(_abPtr.x - _abDragObj.transform.position.x, 0f, Mathf.Max(0f, (float)screenWidth - _abBtnW));
+                                _abBy = Mathf.Clamp(_abPtr.y - _abDragObj.transform.position.y, 0f, Mathf.Max(0f, (float)screenHeight - _abBtnH));
+                                _abUi.transform.position = new Vector3(_abBx, _abBy, 0f);
+                                _abRect = new Rect(_abBx, _abBy, _abBtnW, _abBtnH);
+                            }
+                        }
+                        if (_abDragObj != null && _abUp)
+                        {
+                            bool _abWasDragged = _abDragObj.transform.localScale.z >= 0.5f;
+                            _abDragObj.name = "__esp_ab_drag_done"; UnityEngine.Object.Destroy(_abDragObj);
+                            if (!_abWasDragged && _abRect.Contains(_abPtr))
+                            {
+                                try { File.WriteAllBytes(Application.persistentDataPath + "/antiban_cmd.flag", new byte[0]); } catch (Exception) { }
+                                PlayerPrefs.SetFloat("esp_ab_notif_v", _abActive ? 2f : 1f);
+                                PlayerPrefs.SetFloat("esp_ab_notif_t", now);
+                            }
+                        }
+                        GUI.matrix = Matrix4x4.identity;
+                        GUI.color = Color.white;
+                        GUI.skin.label.alignment = TextAnchor.MiddleCenter;
+                        float _abLs = 1.3f;
+                        GUI.matrix = Matrix4x4.TRS(new Vector3(_abRect.x, _abRect.y, 0f), Quaternion.identity, new Vector3(_abLs, _abLs, 1f));
+                        GUI.Label(new Rect(0f, 0f, _abRect.width / _abLs, 26f / _abLs), "ANTIBAN");
+                        GUI.matrix = Matrix4x4.identity;
+                        GUI.skin.label.alignment = TextAnchor.UpperLeft;
+                        float _abTkX = _abRect.x + 7f, _abTkY = _abRect.y + 32f;
+                        float _abTkW = 87f, _abTkH = 38f, _abTkR = 6f;
+                        GUI.color = _abActive ? new Color(0.10f, 0.72f, 0.22f, 0.96f) : new Color(0.24f, 0.24f, 0.28f, 0.92f);
+                        GUI.DrawTexture(new Rect(_abTkX + _abTkR,          _abTkY,                    _abTkW - _abTkR * 2f, _abTkH),              pixel);
+                        GUI.DrawTexture(new Rect(_abTkX,                   _abTkY + _abTkR,           _abTkW,               _abTkH - _abTkR * 2f), pixel);
+                        GUI.DrawTexture(new Rect(_abTkX + _abTkR * 0.5f,  _abTkY + _abTkR * 0.5f,   _abTkW - _abTkR,      _abTkH - _abTkR),     pixel);
+                        float _abThD = 29f, _abThR = 4f;
+                        float _abThX = _abActive ? (_abTkX + _abTkW - _abThR - _abThD) : (_abTkX + _abThR);
+                        float _abThY = _abTkY + _abThR;
+                        GUI.color = new Color(0f, 0f, 0f, 0.18f);
+                        GUI.DrawTexture(new Rect(_abThX - 1.5f, _abThY + 3f, _abThD + 3f, _abThD), pixel);
+                        GUI.color = Color.white;
+                        GUI.DrawTexture(new Rect(_abThX + _abThR,    _abThY,              _abThD - _abThR * 2f, _abThD),              pixel);
+                        GUI.DrawTexture(new Rect(_abThX,             _abThY + _abThR,     _abThD,               _abThD - _abThR * 2f), pixel);
+                        GUI.DrawTexture(new Rect(_abThX + 1.5f,      _abThY + 1.5f,       _abThD - 3f,          _abThD - 3f),         pixel);
+                        } // end if esp_ab_show
+                        // Notification toast (top-right corner)
+                        float _abNtT = PlayerPrefs.GetFloat("esp_ab_notif_t", -99f);
+                        if (now - _abNtT < 3.0f)
+                        {
+                            float _abNtA = 1f - (now - _abNtT) / 3.0f;
+                            bool _abNtOn = PlayerPrefs.GetFloat("esp_ab_notif_v", 0f) < 1.5f;
+                            GUI.color = new Color(0.10f, 0.92f, 0.28f, _abNtA);
+                            GUI.skin.label.alignment = TextAnchor.UpperRight;
+                            float _abNtS = 1.3f;
+                            GUI.matrix = Matrix4x4.TRS(new Vector3((float)screenWidth - 220f * _abNtS, 30f, 0f), Quaternion.identity, new Vector3(_abNtS, _abNtS, 1f));
+                            GUI.Label(new Rect(0f, 0f, 220f, 32f), _abNtOn ? "Da bat antiban OK!" : "Da tat antiban OK!");
+                            GUI.matrix = Matrix4x4.identity;
+                            GUI.skin.label.alignment = TextAnchor.UpperLeft;
+                            GUI.color = Color.white;
+                        }
+                    }
+                    catch (Exception) { }
+                    // Radar minimap
+                    try
+                    {
+                        if (((int)PlayerPrefs.GetFloat("esp_b62", 0f) & B62Radar) != 0)
+                        {
+                            GameObject _rAnch = GameObject.Find("__esp_radar_anchor");
+                            if (_rAnch == null)
+                            {
+                                _rAnch = new GameObject("__esp_radar_anchor");
+                                try
+                                {
+                                    string _rPosPath = Application.persistentDataPath + "/.esp_radar_pos";
+                                    if (File.Exists(_rPosPath))
+                                    {
+                                        string[] _rParts = File.ReadAllText(_rPosPath).Split(':');
+                                        float _rrx = 0f, _rry = 0f;
+                                        if (_rParts.Length >= 2) { float.TryParse(_rParts[0], out _rrx); float.TryParse(_rParts[1], out _rry); }
+                                        _rAnch.transform.position = new Vector3(_rrx, _rry, 0f);
+                                    }
+                                    else
+                                    {
+                                        _rAnch.transform.position = new Vector3((float)screenWidth * 0.85f, (float)screenHeight * 0.15f, 0f);
+                                    }
+                                }
+                                catch (Exception) { }
+                                UnityEngine.Object.DontDestroyOnLoad(_rAnch);
+                            }
+                            float _rx = _rAnch.transform.position.x;
+                            float _ry = _rAnch.transform.position.y;
+                            const float _rRadius = 60f;
+                            const float _rRange  = 150f;
+                            Player _rlp = GameFacade.CurrentLocalPlayer();
+                            Camera _rcam = Camera.main;
+                            if (_rlp != null && _rcam != null)
+                            {
+                                Texture2D _rpx = Texture2D.whiteTexture;
+                                // Nền tối
+                                GUI.color = new Color(0f, 0f, 0f, 0.55f);
+                                const int _rSeg = 36;
+                                for (int _rs = 0; _rs < _rSeg; _rs++)
+                                {
+                                    float _ra1 = _rs * (6.28318f / _rSeg);
+                                    float _ra2 = (_rs + 1) * (6.28318f / _rSeg);
+                                    float _rx1 = _rx + Mathf.Cos(_ra1) * _rRadius, _ry1 = _ry + Mathf.Sin(_ra1) * _rRadius;
+                                    float _rx2 = _rx + Mathf.Cos(_ra2) * _rRadius, _ry2 = _ry + Mathf.Sin(_ra2) * _rRadius;
+                                    float _rdx = _rx2 - _rx1, _rdy = _ry2 - _ry1;
+                                    float _rlen = Mathf.Sqrt(_rdx * _rdx + _rdy * _rdy);
+                                    if (_rlen < 0.5f) continue;
+                                    GUI.matrix = Matrix4x4.TRS(new Vector3(_rx1, _ry1, 0f), Quaternion.Euler(0f, 0f, Mathf.Atan2(_rdy, _rdx) * 57.29578f), Vector3.one);
+                                    GUI.DrawTexture(new Rect(0f, -1f, _rlen, 2f), _rpx);
+                                    GUI.matrix = Matrix4x4.identity;
+                                }
+                                // Chấm xanh = bản thân
+                                GUI.color = new Color(0f, 1f, 0f, 1f);
+                                GUI.DrawTexture(new Rect(_rx - 3f, _ry - 3f, 6f, 6f), _rpx);
+                                // Quét địch
+                                Transform _rlRoot = _rlp.RootTransform;
+                                {{MATCH_TYPE}} _rmatch = GameFacade.CurrentMatch();
+                                IList _rpl = _rmatch == null ? null : _rmatch.{{MATCH_PLAYERS_METHOD}}();
+                                if (_rlRoot != null && _rpl != null)
+                                {
+                                    float _rcamYaw = _rcam.transform.eulerAngles.y * 0.01745329f;
+                                    int _rpcnt = _rpl.Count; if (_rpcnt > 64) _rpcnt = 64;
+                                    for (int _ri = 0; _ri < _rpcnt; _ri++)
+                                    {
+                                        try
+                                        {
+                                            Player _rp = _rpl[_ri] as Player;
+                                            if (_rp == null || _rp.IsLocalPlayer() || _rp.IsLocalTeammate(false)) continue;
+                                            if (_rp.CurHP <= 0 && !_rp.IsDieing) continue;
+                                            Transform _rrRoot = _rp.RootTransform;
+                                            if (_rrRoot == null) continue;
+                                            Vector3 _rdiff = _rrRoot.position - _rlRoot.position;
+                                            float _rdist = Mathf.Sqrt(_rdiff.x * _rdiff.x + _rdiff.z * _rdiff.z);
+                                            if (_rdist > _rRange) continue;
+                                            float _rang = Mathf.Atan2(_rdiff.x, _rdiff.z) - _rcamYaw;
+                                            float _rnorm = _rdist / _rRange;
+                                            float _rdotX = _rx + Mathf.Sin(_rang) * _rnorm * _rRadius;
+                                            float _rdotY = _ry - Mathf.Cos(_rang) * _rnorm * _rRadius;
+                                            float _rhp = _rp.MaxHP > 0 ? (float)_rp.CurHP / _rp.MaxHP : 0f;
+                                            GUI.color = _rhp < 0.3f ? new Color(1f, 0.5f, 0f, 1f) : new Color(1f, 0f, 0f, 1f);
+                                            GUI.DrawTexture(new Rect(_rdotX - 2.5f, _rdotY - 2.5f, 5f, 5f), _rpx);
+                                        }
+                                        catch (Exception) { }
+                                    }
+                                }
+                                GUI.matrix = Matrix4x4.identity;
+                                GUI.color = Color.white;
+                            }
+                        }
+                    }
+                    catch (Exception) { }
+                    // Stolen-patch guard: show overlay when app has not injected this session
+                    try
+                    {
+                        if (PlayerPrefs.GetFloat("esp_tv", 0f) < 0.5f) {
+                            GUI.color = new Color(0f, 0f, 0f, 0.88f);
+                            GUI.DrawTexture(new Rect(0f, 0f, (float)screenWidth, (float)screenHeight), pixel);
+                            float _dW = 320f, _dH = 110f;
+                            float _dX = ((float)screenWidth - _dW) * 0.5f, _dY = ((float)screenHeight - _dH) * 0.5f;
+                            GUI.color = new Color(0.10f, 0.10f, 0.13f, 0.97f);
+                            GUI.DrawTexture(new Rect(_dX, _dY, _dW, _dH), pixel);
+                            GUI.color = new Color(0.14f, 0.14f, 0.19f, 1f);
+                            GUI.DrawTexture(new Rect(_dX, _dY, _dW, 38f), pixel);
+                            GUI.color = Color.white;
+                            GUI.skin.label.alignment = TextAnchor.MiddleCenter;
+                            float _ts = 2.1f;
+                            GUI.matrix = Matrix4x4.TRS(new Vector3(_dX, _dY, 0f), Quaternion.identity, new Vector3(_ts, _ts, 1f));
+                            GUI.Label(new Rect(0f, 0f, _dW / _ts, 38f / _ts), "CHEAIOSVIP");
+                            GUI.matrix = Matrix4x4.identity;
+                            GUI.color = new Color(0.25f, 0.70f, 0.25f, 1f);
+                            float _fs = 1.3f;
+                            GUI.matrix = Matrix4x4.TRS(new Vector3(_dX, _dY + 54f, 0f), Quaternion.identity, new Vector3(_fs, _fs, 1f));
+                            GUI.Label(new Rect(0f, 0f, _dW / _fs, 36f / _fs), "SERVER: ĐANG KẾT NỐI, VUI LÒNG CHỜ");
+                            GUI.matrix = Matrix4x4.identity;
+                            GUI.skin.label.alignment = TextAnchor.UpperLeft;
+                        }
+                    }
+                    catch (Exception) { }
                 }
             }
             catch (Exception)
@@ -767,6 +1099,50 @@ namespace ProjectEspPatch
                         }
 
                         {
+                            bool backJumpOn = (packedAuxState & AuxBackJump) != 0;
+                            try
+                            {
+                                if (backJumpOn)
+                                {
+                                    COW.GameVarDef.EnableAccelerationOnFalling = false;
+                                    COW.GameVarDef.EnableLowFallingSwapWeapon = true;
+                                }
+                                else
+                                {
+                                    COW.GameVarDef.EnableAccelerationOnFalling = true;
+                                    COW.GameVarDef.EnableLowFallingSwapWeapon = false;
+                                }
+                            }
+                            catch (Exception) { }
+                        }
+
+                        {
+                            // SetControlEnabled inline — cross-assembly calls not allowed in IFix woven methods
+                            bool ghostControlOn = (packedAuxState & AuxGhostControl) != 0;
+                            if (ghostControlOn)
+                            {
+                                if (GameObject.Find("__esp_ghost_control") == null)
+                                {
+                                    GameObject _gc = new GameObject("__esp_ghost_control");
+                                    UnityEngine.Object.DontDestroyOnLoad(_gc);
+                                }
+                            }
+                            else
+                            {
+                                GameObject _gcOff = GameObject.Find("__esp_ghost_control");
+                                if (_gcOff != null) { _gcOff.name = "__esp_ghost_control_off"; UnityEngine.Object.Destroy(_gcOff); }
+                                GameObject _gaOff = GameObject.Find("__esp_ghost_active");
+                                if (_gaOff != null) { _gaOff.name = "__esp_ghost_active_off"; UnityEngine.Object.Destroy(_gaOff); }
+                                GameObject _gnOff = GameObject.Find("__esp_ghost_anchor");
+                                if (_gnOff != null) { _gnOff.name = "__esp_ghost_anchor_off"; UnityEngine.Object.Destroy(_gnOff); }
+                                GameObject _gdOff = GameObject.Find("__esp_ghost_drag");
+                                if (_gdOff != null) { _gdOff.name = "__esp_ghost_drag_off"; UnityEngine.Object.Destroy(_gdOff); }
+                                GameObject _guOff = GameObject.Find("__esp_ghost_ui_state");
+                                if (_guOff != null) { _guOff.name = "__esp_ghost_ui_state_off"; UnityEngine.Object.Destroy(_guOff); }
+                            }
+                        }
+
+                        {
                             int r8 = (int)PlayerPrefs.GetFloat("esp_r8", 0f);
                             PlayerAttributes rAttrs = _lp.Attributes;
                             if (rAttrs != null)
@@ -778,6 +1154,160 @@ namespace ProjectEspPatch
                                 rAttrs.ActiveSkillCdReduction = skillCDOn ? 0.9f : 0f;
                                 rAttrs.PetSkillCDReduction = skillCDOn ? 0.9f : 0f;
                             }
+
+                            {
+                                bool chamsOn = (r8 & R8Chams) != 0;
+                                try
+                                {
+                                    if (chamsOn)
+                                    {
+                                        COW.GameVarDef.EnableShowPlayerOutline = true;
+                                        COW.GameVarDef.ShowPlayerOutlineMaxDistance = 500u;
+                                        COW.GameVarDef.ShowPlayerOutlineColor = 0xFFFF0000u;
+                                        COW.GameVarDef.ShowPlayerOutlineWidth = 3f;
+                                        COW.GameVarDef.PCOBOutlineSolid = true;
+                                    }
+                                    else
+                                    {
+                                        COW.GameVarDef.EnableShowPlayerOutline = false;
+                                        COW.GameVarDef.PCOBOutlineSolid = false;
+                                    }
+                                }
+                                catch (Exception) { }
+                            }
+
+                            {
+                                bool fastLootOn = (r8 & R8FastLoot) != 0;
+                                try
+                                {
+                                    if (fastLootOn)
+                                    {
+                                        COW.GameVarDef.AutoPickupPoolOptEnabled = true;
+                                        COW.GameVarDef.AutoPickupInvokeOptEnabled = true;
+                                        COW.GameVarDef.AutoPickUpSortAttachmentEnable = true;
+                                        COW.GameVarDef.EnableBackgroundCacheAutoPickupWeapon = true;
+                                        COW.GameVarDef.EnableBackgroundCacheAutoPickupFppWeapon = true;
+                                    }
+                                }
+                                catch (Exception) { }
+                            }
+
+                            {
+                                bool camHackOn = (r8 & R8CamHack) != 0;
+                                try
+                                {
+                                    if (camHackOn)
+                                    {
+                                        COW.GameVarDef.CameraShakeCabinFactor = 1.0f;
+                                        COW.GameVarDef.CameraBackOffectLowerCutAngle = 1.0f;
+                                        COW.GameVarDef.CameraBackOffectLowerAngleDist = 1.0f;
+                                        COW.GameVarDef.CameraUpOffectLowerAngleDist = 1.0f;
+                                        COW.GameVarDef.CameraUpOffectLowerHitDrawBackDist = 1.0f;
+                                    }
+                                }
+                                catch (Exception) { }
+                            }
+
+                            {
+                                bool unlockFpsOn = (r8 & R8UnlockFps) != 0;
+                                try
+                                {
+                                    if (unlockFpsOn)
+                                    {
+                                        if (Application.targetFrameRate != 120)
+                                        {
+                                            Application.targetFrameRate = 120;
+                                            GameFacade.SetFrameRate(COW.EHighFPS.HighFPS120);
+                                        }
+                                    }
+                                    else if (Application.targetFrameRate > 60)
+                                    {
+                                        Application.targetFrameRate = 60;
+                                        GameFacade.SetFrameRate(COW.EHighFPS.HighFPS);
+                                    }
+                                }
+                                catch (Exception) { }
+                            }
+
+                            {
+                                bool noFogOn = (r8 & R8NoFog) != 0;
+                                try
+                                {
+                                    if (noFogOn)
+                                    {
+                                        RenderSettings.fog = false;
+                                        CameraControllerManager noFogCam = GameFacade.CurrentCameraControllerManager();
+                                        if (noFogCam != null) noFogCam.SetFarClipPlane(1000f);
+                                    }
+                                    else if (!RenderSettings.fog)
+                                    {
+                                        RenderSettings.fog = true;
+                                        CameraControllerManager noFogCam = GameFacade.CurrentCameraControllerManager();
+                                        if (noFogCam != null) noFogCam.ReSetFarClipPlane();
+                                    }
+                                }
+                                catch (Exception) { }
+                            }
+
+                            {
+                                bool fastCrouchOn = (r8 & R8FastCrouch) != 0;
+                                try { COW.GameVarDef.CanCrouchingRunFast = fastCrouchOn; }
+                                catch (Exception) { }
+                            }
+                        }
+
+                        {
+                            float _spVal = PlayerPrefs.GetFloat("esp_sp", 0f);
+                            bool isSpinBot = _spVal >= 0.5f;
+                            bool fastRot = false;
+                            int _spRaw = _spVal >= 1f ? Mathf.Clamp((int)_spVal - 1, 0, 300) : 90;
+                            float spinSpeed = _spRaw * 12f;
+                            try
+                            {
+                                if (fastRot || isSpinBot)
+                                {
+                                    COW.GameVarDef.FreeMoveAngularSpeed = 9999.9f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedStand = 9999.9f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedCrouch = 9999.9f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedCreep = 9999.9f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedKnockDown = 9999.9f;
+                                }
+                                else if (COW.GameVarDef.FreeMoveAngularSpeed > 5000f)
+                                {
+                                    COW.GameVarDef.FreeMoveAngularSpeed = 360f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedStand = 360f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedCrouch = 240f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedCreep = 180f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedKnockDown = 90f;
+                                }
+                                if (isSpinBot)
+                                {
+                                    Transform pRoot = _lp.RootTransform;
+                                    Transform pBody = pRoot != null ? pRoot.parent : null;
+                                    Transform spinTarget = pBody != null ? pBody : pRoot;
+                                    if (spinTarget != null)
+                                    {
+                                        float curSpinAngle = (Time.time * spinSpeed) % 360f;
+                                        spinTarget.eulerAngles = new Vector3(spinTarget.eulerAngles.x, curSpinAngle, spinTarget.eulerAngles.z);
+                                    }
+                                }
+                            }
+                            catch (Exception) { }
+                        }
+
+                        {
+                            try
+                            {
+                                if (((int)PlayerPrefs.GetFloat("esp_b62", 0f) & B62SpeedHack) != 0)
+                                {
+                                    if (Time.timeScale < 1.25f) Time.timeScale = 1.3f;
+                                }
+                                else
+                                {
+                                    if (Time.timeScale > 1.01f) Time.timeScale = 1f;
+                                }
+                            }
+                            catch (Exception) { }
                         }
 
                         {
@@ -858,6 +1388,29 @@ namespace ProjectEspPatch
                             }
                         }
 
+                        {
+                            try
+                            {
+                                PlayerAttributes _skyAttrs = _lp.Attributes;
+                                if (_skyAttrs != null)
+                                {
+                                    if ((auxState & AuxFastParachute) != 0)
+                                    {
+                                        _skyAttrs.ExtraSkyDivingMaxHSpeed   = 120f;
+                                        _skyAttrs.ExtraSkySurfingMaxHSpeed  = 120f;
+                                        _skyAttrs.ExtraParachutingMaxVSpeed = 22f;
+                                    }
+                                    else if (_skyAttrs.ExtraSkyDivingMaxHSpeed > 1f)
+                                    {
+                                        _skyAttrs.ExtraSkyDivingMaxHSpeed   = 0f;
+                                        _skyAttrs.ExtraSkySurfingMaxHSpeed  = 0f;
+                                        _skyAttrs.ExtraParachutingMaxVSpeed = 0f;
+                                    }
+                                }
+                            }
+                            catch (Exception) { }
+                        }
+
                         if ((auxState & AuxFastParachute) != 0)
                         {
                             bool skySurfing = _lp.IsSkySurfing;
@@ -927,23 +1480,6 @@ namespace ProjectEspPatch
                             -AuxStateMarker - (float)packedAuxState);
                     }
                 }
-            }
-            catch (Exception) { }
-
-            // Ghost floating button (draw after ESP so it stays on top)
-            try
-            {
-                Vector2 _gPtr = Vector2.zero;
-                bool _gDown = false, _gDrag = false, _gUp = false;
-                if (Input.touchCount > 0)
-                {
-                    Touch _t = Input.GetTouch(0);
-                    _gPtr = new Vector2(_t.position.x, (float)screenHeight - _t.position.y);
-                    _gDown = _t.phase == TouchPhase.Began;
-                    _gDrag = _t.phase == TouchPhase.Moved || _t.phase == TouchPhase.Stationary;
-                    _gUp   = _t.phase == TouchPhase.Ended || _t.phase == TouchPhase.Canceled;
-                }
-                GhostFeature.DrawFloatingButton(Texture2D.whiteTexture, _gPtr, _gDown, _gDrag, _gUp, screenWidth, screenHeight);
             }
             catch (Exception) { }
 
