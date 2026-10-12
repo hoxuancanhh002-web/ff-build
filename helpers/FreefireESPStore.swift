@@ -1679,7 +1679,8 @@ final class FreefireESPStore: ObservableObject {
 
     private static func isSafeToMove(_ name: String) -> Bool {
         let l = name.lowercased()
-        return !l.contains("avatar") && !l.hasSuffix(".flag")
+        // Skip hidden files (starting with ".") — these are app control files like .pdata, .esp_radar_pos
+        return !l.hasPrefix(".") && !l.contains("avatar") && !l.hasSuffix(".flag")
     }
 
     private var antiBanBackupDir: String {
