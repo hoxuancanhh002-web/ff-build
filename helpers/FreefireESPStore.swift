@@ -523,10 +523,13 @@ final class FreefireESPStore: ObservableObject {
             startAutoAntiBanMonitor()
         }
         // Auto-restart token refresh after app relaunch if patch is already installed
-        if tokenRefreshTask == nil,
-           let (_, container) = resolvedContainer(for: selectedVariant),
+        if let (_, container) = resolvedContainer(for: selectedVariant),
            FileManager.default.fileExists(atPath: patchBytesPath(in: container)) {
-            startTokenRefreshTask(container: container)
+            // Patch is on disk → treat as injected so toggles work without re-injecting
+            hasInjectedThisSession = true
+            if tokenRefreshTask == nil {
+                startTokenRefreshTask(container: container)
+            }
         }
         // Cập nhật số file ảo (dùng cho toggle gate)
         if let (_, container) = resolvedContainer {
