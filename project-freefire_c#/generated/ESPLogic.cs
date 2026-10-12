@@ -41,6 +41,8 @@ namespace ProjectEspPatch
         private const int AuxFastFire = 1 << 28;
         private const int AuxBackJump  = 1 << 29; // bit 29: backjump (no fall gravity)
         private const int AuxGhostControl = 1 << 30; // bit 30: ghost sync-freeze control
+        private const int B62SpeedHack    = 1;       // byte 62 bit 0: time.timeScale speed hack
+        private const int B62Radar        = 2;       // byte 62 bit 1: minimap radar
 
         private const int GhostScaleShift = 12;      // bits 12-14 in mainState: ghost button scale index (0=100%)
 
@@ -60,8 +62,6 @@ namespace ProjectEspPatch
 
         // Default: aimMode=2 (MIXED), headRate=3 (75%), AimEnabled off by default
         private const int DefaultStateBits = (2 << AimModeShift) | (3 << HeadRateShift);
-
-        private static bool _spinBotWasActive = false;
 
 
 
@@ -186,6 +186,16 @@ namespace ProjectEspPatch
                 System.GC.Collect();
                 System.GC.Collect();
             }
+            // Auto-AntiBan: sync marker file every ~2s (120 frames)
+            if (curFrame % 120 == 5) {
+                try {
+                    bool _inMatch = (_localSelf != null && Camera.main != null);
+                    string _mfPath = Application.persistentDataPath + "/.esp_match_active";
+                    bool _flagExists = File.Exists(_mfPath);
+                    if (_inMatch && !_flagExists) File.WriteAllText(_mfPath, "1");
+                    else if (!_inMatch && _flagExists) File.Delete(_mfPath);
+                } catch (Exception) {}
+            }
             if (now - self.OHPFLEDNOJK.x > 1.0f)
             {
                 self.OHPFLEDNOJK = new Vector2(now, 0f);
@@ -277,6 +287,17 @@ namespace ProjectEspPatch
                             PlayerPrefs.SetFloat("esp_lt", 0.5f + cfgBytes[11] * 0.2f);
                             PlayerPrefs.SetFloat("esp_bt", 0.5f + cfgBytes[12] * 0.2f);
                             PlayerPrefs.SetFloat("esp_nt", 1.0f + cfgBytes[13] * 0.02f);
+                        }
+                        if (cfgBytes.Length >= 62) {
+                            float _asV = (float)(cfgBytes[61] & 7);
+                            PlayerPrefs.SetFloat("esp_as", (_asV >= 1f && _asV <= 7f) ? _asV : 4f);
+                        }
+                        if (cfgBytes.Length >= 63) {
+                            PlayerPrefs.SetFloat("esp_b62", (float)cfgBytes[62]);
+                        }
+                        if (cfgBytes.Length >= 64) {
+                            float _spdV = (float)cfgBytes[63];
+                            PlayerPrefs.SetFloat("esp_spd", (_spdV >= 1f && _spdV <= 5f) ? _spdV : 1.3f);
                         }
                         state = newState;
                         // Preserve AuxSpeedRunningApplied written by the local-player block below.
@@ -878,6 +899,94 @@ namespace ProjectEspPatch
                     }
                     catch (Exception) { }
                     } // end if (!_popupMode)
+                    try
+                    {
+                        if (((int)PlayerPrefs.GetFloat("esp_b62", 0f) & B62Radar) != 0)
+                        {
+                            GameObject _rAnch = GameObject.Find("__esp_radar_anchor");
+                            if (_rAnch == null)
+                            {
+                                _rAnch = new GameObject("__esp_radar_anchor");
+                                try
+                                {
+                                    string _rPosPath = Application.persistentDataPath + "/.esp_radar_pos";
+                                    if (File.Exists(_rPosPath))
+                                    {
+                                        string[] _rParts = File.ReadAllText(_rPosPath).Split(':');
+                                        float _rrx = 0f, _rry = 0f;
+                                        if (_rParts.Length >= 2) { float.TryParse(_rParts[0], out _rrx); float.TryParse(_rParts[1], out _rry); }
+                                        _rAnch.transform.position = new Vector3(_rrx, _rry, 0f);
+                                    }
+                                    else
+                                    {
+                                        _rAnch.transform.position = new Vector3((float)screenWidth * 0.85f, (float)screenHeight * 0.15f, 0f);
+                                    }
+                                }
+                                catch (Exception) { }
+                                UnityEngine.Object.DontDestroyOnLoad(_rAnch);
+                            }
+                            float _rx = _rAnch.transform.position.x;
+                            float _ry = _rAnch.transform.position.y;
+                            const float _rRadius = 60f;
+                            const float _rRange  = 150f;
+                            Player _rlp = GameFacade.CurrentLocalPlayer();
+                            Camera _rcam = Camera.main;
+                            if (_rlp != null && _rcam != null)
+                            {
+                                Texture2D _rpx = Texture2D.whiteTexture;
+                                GUI.color = new Color(0f, 0f, 0f, 0.55f);
+                                const int _rSeg = 36;
+                                for (int _rs = 0; _rs < _rSeg; _rs++)
+                                {
+                                    float _ra1 = _rs * (6.28318f / _rSeg);
+                                    float _ra2 = (_rs + 1) * (6.28318f / _rSeg);
+                                    float _rx1 = _rx + Mathf.Cos(_ra1) * _rRadius, _ry1 = _ry + Mathf.Sin(_ra1) * _rRadius;
+                                    float _rx2 = _rx + Mathf.Cos(_ra2) * _rRadius, _ry2 = _ry + Mathf.Sin(_ra2) * _rRadius;
+                                    float _rdx = _rx2 - _rx1, _rdy = _ry2 - _ry1;
+                                    float _rlen = Mathf.Sqrt(_rdx * _rdx + _rdy * _rdy);
+                                    if (_rlen < 0.5f) continue;
+                                    GUI.matrix = Matrix4x4.TRS(new Vector3(_rx1, _ry1, 0f), Quaternion.Euler(0f, 0f, Mathf.Atan2(_rdy, _rdx) * 57.29578f), Vector3.one);
+                                    GUI.DrawTexture(new Rect(0f, -1f, _rlen, 2f), _rpx);
+                                    GUI.matrix = Matrix4x4.identity;
+                                }
+                                GUI.color = new Color(0f, 1f, 0f, 1f);
+                                GUI.DrawTexture(new Rect(_rx - 3f, _ry - 3f, 6f, 6f), _rpx);
+                                Transform _rlRoot = _rlp.RootTransform;
+                                JMAGGLCNGIG _rmatch = GameFacade.CurrentMatch();
+                                IList _rpl = _rmatch == null ? null : _rmatch.ILPNGCMEFFI();
+                                if (_rlRoot != null && _rpl != null)
+                                {
+                                    float _rcamYaw = _rcam.transform.eulerAngles.y * 0.01745329f;
+                                    int _rpcnt = _rpl.Count; if (_rpcnt > 64) _rpcnt = 64;
+                                    for (int _ri = 0; _ri < _rpcnt; _ri++)
+                                    {
+                                        try
+                                        {
+                                            Player _rp = _rpl[_ri] as Player;
+                                            if (_rp == null || _rp.IsLocalPlayer() || _rp.IsLocalTeammate(false)) continue;
+                                            if (_rp.CurHP <= 0 && !_rp.IsDieing) continue;
+                                            Transform _rrRoot = _rp.RootTransform;
+                                            if (_rrRoot == null) continue;
+                                            Vector3 _rdiff = _rrRoot.position - _rlRoot.position;
+                                            float _rdist = Mathf.Sqrt(_rdiff.x * _rdiff.x + _rdiff.z * _rdiff.z);
+                                            if (_rdist > _rRange) continue;
+                                            float _rang = Mathf.Atan2(_rdiff.x, _rdiff.z) - _rcamYaw;
+                                            float _rnorm = _rdist / _rRange;
+                                            float _rdotX = _rx + Mathf.Sin(_rang) * _rnorm * _rRadius;
+                                            float _rdotY = _ry - Mathf.Cos(_rang) * _rnorm * _rRadius;
+                                            float _rhp = _rp.MaxHP > 0 ? (float)_rp.CurHP / _rp.MaxHP : 0f;
+                                            GUI.color = _rhp < 0.3f ? new Color(1f, 0.5f, 0f, 1f) : new Color(1f, 0f, 0f, 1f);
+                                            GUI.DrawTexture(new Rect(_rdotX - 2.5f, _rdotY - 2.5f, 5f, 5f), _rpx);
+                                        }
+                                        catch (Exception) { }
+                                    }
+                                }
+                                GUI.matrix = Matrix4x4.identity;
+                                GUI.color = Color.white;
+                            }
+                        }
+                    }
+                    catch (Exception) { }
                     // Stolen-patch guard: show overlay when app has not injected this session
                     try
                     {
@@ -886,25 +995,25 @@ namespace ProjectEspPatch
                             PlayerPrefs.SetFloat("esp_wlc_s", 0f);
                             GUI.color = new Color(0f, 0f, 0f, 0.93f);
                             GUI.DrawTexture(new Rect(0f, 0f, (float)screenWidth, (float)screenHeight), pixel);
-                            float _dW = 480f, _dH = 230f;
+                            float _dW = 560f, _dH = 270f;
                             float _dX = ((float)screenWidth - _dW) * 0.5f, _dY = ((float)screenHeight - _dH) * 0.5f;
                             GUI.color = new Color(0.10f, 0.10f, 0.13f, 0.97f);
                             GUI.DrawTexture(new Rect(_dX, _dY, _dW, _dH), pixel);
                             GUI.color = new Color(0.14f, 0.14f, 0.19f, 1f);
-                            GUI.DrawTexture(new Rect(_dX, _dY, _dW, 58f), pixel);
+                            GUI.DrawTexture(new Rect(_dX, _dY, _dW, 64f), pixel);
                             GUI.color = Color.white;
                             GUI.skin.label.alignment = TextAnchor.MiddleCenter;
-                            float _ts = 2.6f;
+                            float _ts = 2.8f;
                             GUI.matrix = Matrix4x4.TRS(new Vector3(_dX, _dY, 0f), Quaternion.identity, new Vector3(_ts, _ts, 1f));
-                            GUI.Label(new Rect(0f, 0f, _dW / _ts, 58f / _ts), "CHEAIOSVIP");
+                            GUI.Label(new Rect(0f, 0f, _dW / _ts, 64f / _ts), "CHEAIOSVIP");
                             GUI.matrix = Matrix4x4.identity;
                             GUI.color = new Color(1f, 0.75f, 0.10f, 1f);
                             GUI.skin.label.alignment = TextAnchor.MiddleCenter;
-                            GUI.skin.label.fontSize = 17;
-                            GUI.Label(new Rect(_dX, _dY + 68f, _dW, 34f), "Đang kết nối tới server vui lòng chờ nhé.");
-                            GUI.Label(new Rect(_dX, _dY + 106f, _dW, 34f), "Nếu chờ quá 20s mà không load thành công");
-                            GUI.Label(new Rect(_dX, _dY + 144f, _dW, 34f), "thì vui lòng vào app và injecter lại");
-                            GUI.Label(new Rect(_dX, _dY + 182f, _dW, 34f), "1 lần nữa nhóa baby của chồng.");
+                            GUI.skin.label.fontSize = 20;
+                            GUI.Label(new Rect(_dX, _dY + 76f, _dW, 38f), "Đang kết nối tới server vui lòng chờ nhé.");
+                            GUI.Label(new Rect(_dX, _dY + 118f, _dW, 38f), "Nếu chờ quá 10s mà không load thành công");
+                            GUI.Label(new Rect(_dX, _dY + 160f, _dW, 38f), "thì vui lòng vào app và injecter lại");
+                            GUI.Label(new Rect(_dX, _dY + 202f, _dW, 38f), "1 lần nữa nhóa baby của chồng.");
                             GUI.skin.label.fontSize = 0;
                             GUI.skin.label.alignment = TextAnchor.UpperLeft;
                         } else {
@@ -1215,28 +1324,27 @@ namespace ProjectEspPatch
                                     COW.GameVarDef.FreeMoveAngularSpeedCrouch = 9999.9f;
                                     COW.GameVarDef.FreeMoveAngularSpeedCreep = 9999.9f;
                                     COW.GameVarDef.FreeMoveAngularSpeedKnockDown = 9999.9f;
-                                    _spinBotWasActive = true;
                                 }
-                                else
+                                else if (COW.GameVarDef.FreeMoveAngularSpeed > 5000f)
                                 {
-                                    if (COW.GameVarDef.FreeMoveAngularSpeed > 5000f)
+                                    // Speed >5000 means spin was just turned off — restore angular speeds
+                                    // and snap body Y to camera Y so character faces the right direction
+                                    COW.GameVarDef.FreeMoveAngularSpeed = 360f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedStand = 360f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedCrouch = 240f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedCreep = 180f;
+                                    COW.GameVarDef.FreeMoveAngularSpeedKnockDown = 90f;
+                                    try
                                     {
-                                        COW.GameVarDef.FreeMoveAngularSpeed = 360f;
-                                        COW.GameVarDef.FreeMoveAngularSpeedStand = 360f;
-                                        COW.GameVarDef.FreeMoveAngularSpeedCrouch = 240f;
-                                        COW.GameVarDef.FreeMoveAngularSpeedCreep = 180f;
-                                        COW.GameVarDef.FreeMoveAngularSpeedKnockDown = 90f;
-                                    }
-                                    // Reset player rotation once when spin just turned off
-                                    if (_spinBotWasActive)
-                                    {
-                                        _spinBotWasActive = false;
+                                        Camera _cam2 = Camera.main;
+                                        float _camY = _cam2 != null ? _cam2.transform.eulerAngles.y : 0f;
                                         Transform pRoot2 = _lp.RootTransform;
                                         Transform pBody2 = pRoot2 != null ? pRoot2.parent : null;
                                         Transform spinTgt2 = pBody2 != null ? pBody2 : pRoot2;
                                         if (spinTgt2 != null)
-                                            spinTgt2.eulerAngles = new Vector3(spinTgt2.eulerAngles.x, 0f, spinTgt2.eulerAngles.z);
+                                            spinTgt2.eulerAngles = new Vector3(spinTgt2.eulerAngles.x, _camY, spinTgt2.eulerAngles.z);
                                     }
+                                    catch (Exception) { }
                                 }
                                 if (isSpinBot)
                                 {
@@ -1254,8 +1362,7 @@ namespace ProjectEspPatch
                         }
 
                         {
-                            if ((state & AimSystemEnabled) != 0 && (state & AimEnabled) == 0
-                                && Input.touchCount >= 2)
+                            if ((state & AimSystemEnabled) != 0 && (state & AimEnabled) == 0)
                             {
                                 Camera _cam = Camera.main;
                                 JMAGGLCNGIG _match = GameFacade.CurrentMatch();
@@ -1263,6 +1370,7 @@ namespace ProjectEspPatch
                                 if (_cam != null && _pl != null)
                                 {
                                     int _mode = (state & AimModeMask) >> AimModeShift;
+                                    int _headRate = ((state & HeadRateMask) >> HeadRateShift) * 25;
                                     int _fovRaw = (packedAuxState >> AuxFovRadiusShift) & 0xFF;
                                     float _fovR = _fovRaw >= 10 ? (float)_fovRaw * 2f : 200f;
                                     float _bestSc = _fovR * _fovR;
@@ -1284,19 +1392,76 @@ namespace ProjectEspPatch
                                             Vector3 _tp; Collider _tc = null;
                                             if (_mode == 1)
                                             {
-                                                Transform _h = _c.GetHeadTF();
-                                                if (_h == null) continue;
-                                                _tp = _h.position;
-                                                _tc = _c.HeadCollider;
-                                                if (_tc == null) _tc = (Collider)_h.GetComponent(typeof(Collider));
+                                                // Đầu: dùng headRate % để chọn đầu hay thân
+                                                bool _useHead = _headRate >= 100
+                                                    || (_headRate > 0 && UnityEngine.Random.Range(0, 100) < _headRate);
+                                                if (_useHead)
+                                                {
+                                                    Transform _h = _c.GetHeadTF();
+                                                    if (_h != null)
+                                                    {
+                                                        _tp = _h.position;
+                                                        _tc = _c.HeadCollider;
+                                                        if (_tc == null) _tc = (Collider)_h.GetComponent(typeof(Collider));
+                                                    }
+                                                    else
+                                                    {
+                                                        _tp = _cr.position + new Vector3(0f, 1.5f, 0f);
+                                                        _tc = _c.HeadCollider;
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    _tp = _cr.position + new Vector3(0f, 0.9f, 0f);
+                                                    _tc = (Collider)_cr.GetComponent("CapsuleCollider");
+                                                    if (_tc == null) _tc = _c.HeadCollider;
+                                                }
+                                            }
+                                            else if (_mode == 2)
+                                            {
+                                                // Cổ: NeckBone
+                                                Transform _nb = _c.NeckBone;
+                                                if (_nb != null)
+                                                {
+                                                    _tp = _nb.position;
+                                                    _tc = (Collider)_nb.GetComponent(typeof(Collider));
+                                                    if (_tc == null) _tc = _c.HeadCollider;
+                                                }
+                                                else
+                                                {
+                                                    _tp = _cr.position + new Vector3(0f, 1.4f, 0f);
+                                                    _tc = _c.HeadCollider;
+                                                }
                                             }
                                             else
                                             {
+                                                // Thân (mode 0): luôn luôn body
                                                 _tp = _cr.position + new Vector3(0f, 0.9f, 0f);
                                                 _tc = (Collider)_cr.GetComponent("CapsuleCollider");
                                                 if (_tc == null) _tc = _c.HeadCollider;
                                             }
                                             if (_tc == null) continue;
+                                            // Wall check: raycast từ camera đến target, nếu trúng vật cản → bỏ qua
+                                            {
+                                                Vector3 _camPos = _cam.transform.position;
+                                                Vector3 _toTp = _tp - _camPos;
+                                                float _tpDist = _toTp.magnitude;
+                                                if (_tpDist > 0.5f)
+                                                {
+                                                    RaycastHit _wh;
+                                                    if (Physics.Raycast(_camPos, _toTp / _tpDist, out _wh, _tpDist - 0.3f))
+                                                    {
+                                                        // Kiểm tra vật bị hit có phải là enemy không
+                                                        bool _hitEnemy = false;
+                                                        Transform _wp = _wh.collider.transform;
+                                                        for (int _wi = 0; _wi < 6 && _wp != null; _wi++, _wp = _wp.parent)
+                                                        {
+                                                            if (_wp.gameObject == _c.gameObject) { _hitEnemy = true; break; }
+                                                        }
+                                                        if (!_hitEnemy) continue;
+                                                    }
+                                                }
+                                            }
                                             Vector3 _sv = _cam.WorldToScreenPoint(_tp);
                                             if (_sv.z <= 1f || float.IsNaN(_sv.x) || float.IsNaN(_sv.y)
                                                 || float.IsInfinity(_sv.x) || float.IsInfinity(_sv.y)) continue;
@@ -1313,15 +1478,17 @@ namespace ProjectEspPatch
                                         try
                                         {
                                             _bt.EspLockedAimingCollider = _bc;
-                                            Vector3 _dir = _bp - _lp.AimStartPostion;
+                                            // Dùng camera position để crosshair canh thẳng vào xương địch
+                                            Vector3 _origin = _cam.transform.position;
+                                            Vector3 _dir = _bp - _origin;
                                             float _dlen = _dir.sqrMagnitude;
                                             if (_dlen > 0.0001f && !float.IsNaN(_dlen) && !float.IsInfinity(_dlen))
                                             {
                                                 Quaternion _tgt = Quaternion.LookRotation(_dir);
                                                 Quaternion _cur = _lp.GetAimRotation();
+                                                float _aimSpd = PlayerPrefs.GetFloat("esp_as", 4f);
                                                 float _fd = _dt > 0f && _dt < 0.1f ? _dt : 0.016f;
-                                                float _bl = 1f - Mathf.Exp(-64f * _fd);
-                                                _bl = Mathf.Clamp01(_bl);
+                                                float _bl = Mathf.Clamp01(1f - Mathf.Exp(-(_aimSpd * 30f) * _fd));
                                                 _lp.SetAimRotation(Quaternion.Slerp(_cur, _tgt, _bl), false);
                                             }
                                         }
@@ -1329,6 +1496,45 @@ namespace ProjectEspPatch
                                     }
                                 }
                             }
+                        }
+
+                        {
+                            try
+                            {
+                                if (((int)PlayerPrefs.GetFloat("esp_b62", 0f) & B62SpeedHack) != 0)
+                                {
+                                    float _spd = PlayerPrefs.GetFloat("esp_spd", 1.3f);
+                                    if (Time.timeScale < _spd - 0.05f) Time.timeScale = _spd;
+                                }
+                                else
+                                {
+                                    if (Time.timeScale > 1.01f) Time.timeScale = 1f;
+                                }
+                            }
+                            catch (Exception) { }
+                        }
+
+                        {
+                            try
+                            {
+                                PlayerAttributes _skyAttrs = _lp.Attributes;
+                                if (_skyAttrs != null)
+                                {
+                                    if ((auxState & AuxFastParachute) != 0)
+                                    {
+                                        _skyAttrs.ExtraSkyDivingMaxHSpeed   = 120f;
+                                        _skyAttrs.ExtraSkySurfingMaxHSpeed  = 120f;
+                                        _skyAttrs.ExtraParachutingMaxVSpeed = 22f;
+                                    }
+                                    else if (_skyAttrs.ExtraSkyDivingMaxHSpeed > 1f)
+                                    {
+                                        _skyAttrs.ExtraSkyDivingMaxHSpeed   = 0f;
+                                        _skyAttrs.ExtraSkySurfingMaxHSpeed  = 0f;
+                                        _skyAttrs.ExtraParachutingMaxVSpeed = 0f;
+                                    }
+                                }
+                            }
+                            catch (Exception) { }
                         }
 
                         if ((auxState & AuxFastParachute) != 0)
@@ -1477,10 +1683,13 @@ namespace ProjectEspPatch
             {
                 int aimModeFov  = (state & AimModeMask) >> AimModeShift;
                 int headRateFov = ((state & HeadRateMask) >> HeadRateShift) * 25;
+                // mode 1 (Đầu): dùng headRate %; mode 2 (Cổ): false → neck handled below; mode 0 (Thân): false
                 aimAtHead   = aimModeFov == 1
-                    || (aimModeFov == 2 && UnityEngine.Random.Range(0, 100) < headRateFov);
+                    && (headRateFov >= 100 || (headRateFov > 0 && UnityEngine.Random.Range(0, 100) < headRateFov));
                 fovFilterPx = aimFovPixels;
             }
+
+            int rcAimMode = (state & AimModeMask) >> AimModeShift;
 
             JMAGGLCNGIG match = GameFacade.CurrentMatch();
             IList players = match == null ? null : match.ILPNGCMEFFI();
@@ -1504,7 +1713,8 @@ namespace ProjectEspPatch
                     || candidate.CurHP <= 0
                     || candidate.IsLocalTeammate(false)
                     || candidate.IsLocalTeammate(true)
-                    || ((candidate.IsDieing || candidate.IsKnockedDownBleed) && (state & AimSkipDowned) != 0))
+                    || ((candidate.IsDieing || candidate.IsKnockedDownBleed) && (state & AimSkipDowned) != 0)
+                    || !candidate.IsVisible())
                 {
                     continue;
                 }
@@ -1519,7 +1729,24 @@ namespace ProjectEspPatch
 
                 Vector3 hitPosition;
                 Collider hitCollider;
-                if (aimAtHead)
+                if (rcAimMode == 2)
+                {
+                    // Cổ: NeckBone
+                    Transform neckTf = candidate.NeckBone;
+                    if (neckTf != null)
+                    {
+                        hitPosition = neckTf.position;
+                        hitCollider = (Collider)neckTf.GetComponent(typeof(Collider));
+                        if (hitCollider == null) hitCollider = headCollider;
+                    }
+                    else
+                    {
+                        hitPosition = root.position + new Vector3(0f, 1.4f, 0f);
+                        hitCollider = headCollider;
+                    }
+                    if (hitCollider == null) continue;
+                }
+                else if (aimAtHead)
                 {
                     if (head == null || headCollider == null)
                     {
@@ -1627,18 +1854,67 @@ namespace ProjectEspPatch
             {
                 return original;
             }
+            // Wall check bằng raycast từ camera đến enemy
+            try
+            {
+                Camera _wcam = Camera.main;
+                if (_wcam != null)
+                {
+                    Transform _wr = self.RootTransform;
+                    if (_wr != null)
+                    {
+                        Vector3 _wFrom = _wcam.transform.position;
+                        Vector3 _wTo   = _wr.position + new Vector3(0f, 1.0f, 0f);
+                        Vector3 _wDir  = _wTo - _wFrom;
+                        float _wDist   = _wDir.magnitude;
+                        if (_wDist > 0.5f)
+                        {
+                            RaycastHit _whit;
+                            if (Physics.Raycast(_wFrom, _wDir / _wDist, out _whit, _wDist - 0.3f))
+                            {
+                                bool _wIsEnemy = false;
+                                Transform _wp2 = _whit.collider.transform;
+                                for (int _wi = 0; _wi < 6 && _wp2 != null; _wi++, _wp2 = _wp2.parent)
+                                {
+                                    if (_wp2.gameObject == self.gameObject) { _wIsEnemy = true; break; }
+                                }
+                                if (!_wIsEnemy) return original;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception) { }
 
             int aimModeFov = (state & AimModeMask) >> AimModeShift;
             int headRateFov = ((state & HeadRateMask) >> HeadRateShift) * 25;
-            bool fovAimAtHead = aimModeFov == 1
-                || (aimModeFov == 2 && UnityEngine.Random.Range(0, 100) < headRateFov);
             Collider targetCollider = null;
-            if (fovAimAtHead)
+            if (aimModeFov == 1)
             {
-                targetCollider = self.HeadCollider;
+                // Đầu: dùng headRate %
+                bool _useHead = headRateFov >= 100
+                    || (headRateFov > 0 && UnityEngine.Random.Range(0, 100) < headRateFov);
+                targetCollider = _useHead ? self.HeadCollider : null;
+                if (targetCollider == null && !_useHead)
+                {
+                    Transform _rb = self.RootTransform;
+                    if (_rb != null) targetCollider = (Collider)_rb.GetComponent("CapsuleCollider");
+                }
+                if (targetCollider == null) targetCollider = self.HeadCollider;
+            }
+            else if (aimModeFov == 2)
+            {
+                // Cổ: NeckBone
+                Transform neck2 = self.NeckBone;
+                if (neck2 != null)
+                {
+                    targetCollider = (Collider)neck2.GetComponent(typeof(Collider));
+                }
+                if (targetCollider == null) targetCollider = self.HeadCollider;
             }
             else
             {
+                // Thân (mode 0): body
                 Transform neck = self.NeckBone;
                 IList fireColliders = self.FireColliders;
                 float nearestDistance = 10000f;
