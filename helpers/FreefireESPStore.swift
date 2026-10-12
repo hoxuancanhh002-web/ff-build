@@ -377,7 +377,7 @@ final class FreefireESPStore: ObservableObject {
     var storedFeatureToken: String = ""
 
     // MARK: - AntiBan Memory
-    @Published var antiBanEnabled: Bool = false
+    @Published var antiBanEnabled: Bool = UserDefaults.standard.bool(forKey: "ab_v1_on")
     @Published var antiBanRunning: Bool = false
     @Published var antiBanLog: [AntiBanLogEntry] = []
     @Published var antiBanProgress: Double = 0
@@ -507,6 +507,11 @@ final class FreefireESPStore: ObservableObject {
         }
         if let (_, container) = resolvedContainer {
             readState(from: container)
+        }
+        // Auto-resume AntiBan V1 nếu đã bật trước đó
+        if antiBanEnabled && antiBanScanTask == nil {
+            ensureAntiBanCmdWatcher()
+            scheduleAntiBanScan()
         }
         // Auto-restart token refresh after app relaunch if patch is already installed
         if tokenRefreshTask == nil,
@@ -1561,6 +1566,7 @@ final class FreefireESPStore: ObservableObject {
 
     func enableAntiBan() {
         antiBanEnabled = true
+        UserDefaults.standard.set(true, forKey: "ab_v1_on")
         antiBanLog.removeAll()
         antiBanOpTask?.cancel()
         antiBanOpTask = Task { @MainActor [weak self] in
@@ -1582,6 +1588,7 @@ final class FreefireESPStore: ObservableObject {
 
     func disableAntiBan() {
         antiBanEnabled = false
+        UserDefaults.standard.set(false, forKey: "ab_v1_on")
         antiBanScanTask?.cancel()
         antiBanScanTask = nil
         antiBanRunning = false
