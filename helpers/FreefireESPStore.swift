@@ -96,6 +96,10 @@ final class FreefireESPStore: ObservableObject {
     private let bitAuxFastFire:      Int32 = 1 << 28  // bit 28: fast fire
     private let bitAuxBackJump:      Int32 = 1 << 29  // bit 29: backjump
     private let bitAuxGhostControl:  Int32 = 1 << 30  // bit 30: ghost sync-freeze control
+
+    // Byte 62 feature flags
+    private let bitB62SpeedHack: UInt8 = 1  // bit 0: time.timeScale speed hack
+    private let bitB62Radar:     UInt8 = 2  // bit 1: minimap radar
     private let ghostScaleShift:     Int32 = 12       // mainBits bits 12-14: ghost button scale index
 
     private let bitFastSwap:         Int32 = 1 << 25  // mainBits bit 25: fast weapon swap
@@ -191,6 +195,8 @@ final class FreefireESPStore: ObservableObject {
         case "aimFovHide":     return aimFovHide
         case "skipDowned":     return skipDowned
         case "fastParachute":  return fastParachute
+        case "speedHack":      return speedHack
+        case "radar":          return radar
         case "speedRunning":   return speedRunning
         case "fakeDamage":     return fakeDamage
         case "wideCamera":     return wideCamera
@@ -243,6 +249,8 @@ final class FreefireESPStore: ObservableObject {
         case "aimFovHide":     toggle(\.aimFovHide)
         case "skipDowned":     toggle(\.skipDowned)
         case "fastParachute":  toggle(\.fastParachute)
+        case "speedHack":      toggle(\.speedHack)
+        case "radar":          toggle(\.radar)
         case "speedRunning":   toggle(\.speedRunning)
         case "fakeDamage":     toggle(\.fakeDamage)
         case "wideCamera":     toggle(\.wideCamera)
@@ -285,6 +293,8 @@ final class FreefireESPStore: ObservableObject {
         case "aimFovHide":     return "Ẩn FOV"
         case "skipDowned":     return "Bỏ Qua Gục"
         case "fastParachute":  return "Dù Nhanh"
+        case "speedHack":      return "Speed Hack"
+        case "radar":          return "Radar"
         case "speedRunning":   return "Tốc Độ"
         case "fakeDamage":     return "Fake Damage"
         case "wideCamera":     return "Wide Camera"
@@ -323,6 +333,8 @@ final class FreefireESPStore: ObservableObject {
     @Published var fastParachute = false
     @Published var speedRunning  = false
     @Published var fakeDamage    = false
+    @Published var speedHack     = false
+    @Published var radar         = false
     @Published var wideCamera    = false
     @Published var wideCameraFov: Int32 = 88
     @Published var fastHeal      = false
@@ -1007,6 +1019,11 @@ final class FreefireESPStore: ObservableObject {
         if data.count >= 38 { fovColor      = bytesToColor(r: data[35], g: data[36], b: data[37]) }
         if data.count >= 39 { skelThicknessRaw = Int32(data[38]) }
         if data.count >= 62 { let _as = Int32(data[61] & 7); aimSpeed = _as > 0 ? _as : 4 }
+        if data.count >= 63 {
+            let b62 = data[62]
+            speedHack = (b62 & bitB62SpeedHack) != 0
+            radar     = (b62 & bitB62Radar)     != 0
+        }
 
         // One-time migration: apply new color/thickness defaults on first launch after update.
         let migKey = "esp_defaults_v3"
@@ -1074,7 +1091,7 @@ final class FreefireESPStore: ObservableObject {
         auxBits |= ((fovRadius / 2) & 0xFF) << auxFovRadiusShift
         auxBits |= ((silentFov / 2) & 0xFF) << auxSilentFovShift
 
-        var data = Data(count: 62)
+        var data = Data(count: 63)
         data.withUnsafeMutableBytes { ptr in
             withUnsafeBytes(of: mainBits) { src in
                 ptr.baseAddress!.copyMemory(from: src.baseAddress!, byteCount: 4)
@@ -1133,6 +1150,10 @@ final class FreefireESPStore: ObservableObject {
         }
         // else: bytes 40-59 remain 0 → C# sees h1=0 → ESP disabled
         data[61] = UInt8(aimSpeed & 7)
+        var b62: UInt8 = 0
+        if speedHack { b62 |= bitB62SpeedHack }
+        if radar     { b62 |= bitB62Radar }
+        data[62] = b62
 
         let docPath = documentsPath(in: container)
         try? FileManager.default.createDirectory(
