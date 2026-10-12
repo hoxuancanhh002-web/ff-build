@@ -987,6 +987,38 @@ namespace ProjectEspPatch
                         }
                     }
                     catch (Exception) { }
+                    // ANTIBAN status overlay — visible in lobby and in-match
+                    try
+                    {
+                        bool _abOn = PlayerPrefs.GetFloat("esp_ab", 0f) >= 0.5f;
+                        string _abLabel = "ANTIBAN: ";
+                        string _abState = _abOn ? "ON" : "OFF";
+                        float _abScale = 3.0f;
+                        float _abLW = (float)_abLabel.Length * 8.5f;
+                        float _abSW = (float)_abState.Length * 8.5f;
+                        float _abTotalW = (_abLW + _abSW) * _abScale;
+                        float _abX  = (float)screenWidth * 0.5f - _abTotalW * 0.5f + 30f;
+                        float _abY  = 120f;
+                        // "ANTIBAN: " in white
+                        GUI.color = Color.white;
+                        for (int _bi = -1; _bi <= 1; _bi++)
+                        {
+                            GUI.matrix = Matrix4x4.TRS(new Vector3(_abX + _bi * 0.7f, _abY, 0f), Quaternion.identity, new Vector3(_abScale, _abScale, 1f));
+                            GUI.Label(new Rect(0f, 0f, _abLW, 20f), _abLabel);
+                        }
+                        GUI.matrix = Matrix4x4.identity;
+                        // "ON"/"OFF" in green/red
+                        GUI.color = _abOn ? new Color(0f, 1f, 0f, 1f) : new Color(1f, 0.15f, 0.15f, 1f);
+                        float _abStateX = _abX + _abLW * _abScale;
+                        for (int _bi = -1; _bi <= 1; _bi++)
+                        {
+                            GUI.matrix = Matrix4x4.TRS(new Vector3(_abStateX + _bi * 0.7f, _abY, 0f), Quaternion.identity, new Vector3(_abScale, _abScale, 1f));
+                            GUI.Label(new Rect(0f, 0f, _abSW, 20f), _abState);
+                        }
+                        GUI.matrix = Matrix4x4.identity;
+                        GUI.color = Color.white;
+                    }
+                    catch (Exception) { }
                     // Stolen-patch guard: show overlay when app has not injected this session
                     try
                     {
