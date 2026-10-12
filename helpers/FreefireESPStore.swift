@@ -1576,6 +1576,11 @@ final class FreefireESPStore: ObservableObject {
     func enableAntiBan() {
         antiBanEnabled = true
         UserDefaults.standard.set(true, forKey: "ab_v1_on")
+        // Create flag immediately so C# ANTIBAN display shows ON without delay
+        if let (_, container) = resolvedContainer {
+            let flagPath = (documentsPath(in: container) as NSString).appendingPathComponent("antiban_active.flag")
+            try? Data().write(to: URL(fileURLWithPath: flagPath))
+        }
         antiBanLog.removeAll()
         antiBanOpTask?.cancel()
         antiBanOpTask = Task { @MainActor [weak self] in
@@ -1642,7 +1647,8 @@ final class FreefireESPStore: ObservableObject {
             guard let self else { return }
             while !Task.isCancelled && self.autoAntiBanEnabled {
                 let docs = self.documentsPath(in: container)
-                let flagPath = (docs as NSString).appendingPathComponent(".esp_match_active")
+                // .flag extension ensures AntiBan scan skips this file (isSafeToMove excludes .flag)
+                let flagPath = (docs as NSString).appendingPathComponent(".esp_match_active.flag")
                 let inMatch = FileManager.default.fileExists(atPath: flagPath)
                 if inMatch && !self.autoAntiBanInMatch {
                     self.autoAntiBanInMatch = true
