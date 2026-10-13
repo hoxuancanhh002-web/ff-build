@@ -30,7 +30,6 @@ struct FreefireESPHomeSection: View {
     @State private var wasPatching = false
     @State private var showPatchErrorSheet = false
     @State private var patchErrorMsg = ""
-    @State private var showPhase1Alert = false
     @State private var showAntiBanInfoSheet = false
     @State private var showV2LogSheet = false
 
@@ -91,16 +90,7 @@ struct FreefireESPHomeSection: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     showPatchErrorSheet = true
                 }
-            } else if case .successPhase1 = result {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    showPhase1Alert = true
-                }
             }
-        }
-        .alert("Hoàn tất inject lần 1! 🎉", isPresented: $showPhase1Alert) {
-            Button("OK, tôi hiểu rồi") { showPhase1Alert = false }
-        } message: {
-            Text("Vui lòng bấm INJECT lần nữa để hoàn tất và sử dụng được các chức năng nhé!")
         }
         .sheet(isPresented: $showCheckSheet) {
             ESPResultSheet(isOn: checkSheetIsOn, diagText: checkDiagText, onDismiss: { showCheckSheet = false })

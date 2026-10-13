@@ -224,10 +224,8 @@ final class FreefireESPStore: ObservableObject {
         let installed = selectedVariant == .freefire ? isPatchInstalled : isPatchInstalledMAX
         let decoys = cachedDecoyCount
         guard decoys >= 100_000 && hasInjectedThisSession else {
-            if decoys < 50_000 {
+            if decoys < 100_000 {
                 showAutoInjectBlock("Vui lòng bấm INJECT để kích hoạt game trước khi bật chức năng!")
-            } else if decoys < 100_000 {
-                showAutoInjectBlock("Đã inject lần 1 xong! Vui lòng bấm INJECT lần 2 để sử dụng chức năng.")
             } else {
                 showAutoInjectBlock("Vui lòng bấm INJECT để kích hoạt lại trước khi bật chức năng!")
             }
@@ -1287,25 +1285,25 @@ final class FreefireESPStore: ObservableObject {
         let isLightInject = !isFirstInject && existingDecoys >= 90_000
 
         if isFirstInject {
-            // ── Lần 1: tạo 50k file ảo, CHƯA ghi patch (20%→95%) ────────────
-            await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang tiến hành inject lần 1..." }
+            // ── Lần 1: tạo 50k file ảo (5%→44%) rồi chạy tiếp lần 2 luôn ──
+            await MainActor.run { self.injectProgress = 0.05; self.injectPhaseLabel = "Đang inject lần 1..." }
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 DispatchQueue.global(qos: .background).async {
                     CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 50_000) { progress in
-                        let total = 0.20 + progress * 0.75   // 20% → 95%
+                        let total = 0.05 + progress * 0.39   // 5% → 44%
                         Task { @MainActor [weak self] in
                             self?.injectProgress = total
-                            self?.injectPhaseLabel = "Đang tiến hành inject lần 1... \(Int(total * 100))%"
+                            self?.injectPhaseLabel = "Đang inject lần 1... \(Int(total * 100))%"
                         }
                     }
                     cont.resume()
                 }
             }
-            await MainActor.run { self.injectProgress = 0.98; self.injectPhaseLabel = "Hoàn tất inject lần 1!" }
-            addLog("Inject lần 1 hoàn tất — 50k file ảo sẵn sàng", level: .ok)
-            return .successPhase1
+            await MainActor.run { self.injectProgress = 0.44; self.injectPhaseLabel = "Lần 1 xong — đang inject lần 2..." }
+            addLog("50k file ảo sẵn sàng — tiếp tục inject lần 2...", level: .ok)
+        }
 
-        } else if isLightInject {
+        if isLightInject {
             // ── Light inject (lần 3+): tạo 10k mới → patch → trim ngầm (20%→85%) ──
             await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang cập nhật inject..." }
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
@@ -1331,21 +1329,23 @@ final class FreefireESPStore: ObservableObject {
                 throw error
             }
 
-            // Trim 10k cũ nhất chạy ngầm — không chờ, user vào game luôn
             let trimDocs = capturedDocs
             Task.detached(priority: .background) {
                 CheatInjectService.trimDecoyFiles(in: trimDocs, keepMax: 100_000)
             }
         } else {
-            // ── Lần 2: 40k → patch → 10k → trim (20% → 85%) ─────────────────
-            await MainActor.run { self.injectProgress = 0.20; self.injectPhaseLabel = "Đang tiến hành inject lần 2..." }
+            // ── Lần 2 (kể cả tiếp ngay sau lần 1): 40k → patch → 10k → trim ──
+            let p2Start: Double = isFirstInject ? 0.44 : 0.20
+            let p2Range: Double = isFirstInject ? 0.22 : 0.46   // 44%→66% hoặc 20%→66%
+            await MainActor.run { self.injectProgress = p2Start; self.injectPhaseLabel = "Đang inject lần 2..." }
+            let capP2Start = p2Start; let capP2Range = p2Range
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 DispatchQueue.global(qos: .background).async {
                     CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 40_000) { progress in
-                        let total = 0.20 + progress * 0.46   // 20% → 66%
+                        let total = capP2Start + progress * capP2Range
                         Task { @MainActor [weak self] in
                             self?.injectProgress = total
-                            self?.injectPhaseLabel = "Đang tiến hành inject lần 2... \(Int(total * 100))%"
+                            self?.injectPhaseLabel = "Đang inject lần 2... \(Int(total * 100))%"
                         }
                     }
                     cont.resume()
@@ -1362,14 +1362,14 @@ final class FreefireESPStore: ObservableObject {
                 throw error
             }
 
-            await MainActor.run { self.injectProgress = 0.68; self.injectPhaseLabel = "Đang tiến hành inject lần 2..." }
+            await MainActor.run { self.injectProgress = 0.68; self.injectPhaseLabel = "Đang inject lần 2..." }
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 DispatchQueue.global(qos: .background).async {
                     CheatInjectService.generateDecoyFiles(in: capturedDocs, count: 10_000) { progress in
                         let total = 0.68 + progress * 0.17   // 68% → 85%
                         Task { @MainActor [weak self] in
                             self?.injectProgress = total
-                            self?.injectPhaseLabel = "Đang tiến hành inject lần 2... \(Int(total * 100))%"
+                            self?.injectPhaseLabel = "Đang inject lần 2... \(Int(total * 100))%"
                         }
                     }
                     CheatInjectService.trimDecoyFiles(in: capturedDocs)
@@ -1639,6 +1639,7 @@ final class FreefireESPStore: ObservableObject {
     func setAutoAntiBan(_ enabled: Bool) {
         autoAntiBanEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: "ab_auto_on")
+        syncDetectShowFlag()
         if enabled {
             // Bật radar minimap luôn khi bật Tự Động
             if !radar {
@@ -1650,6 +1651,16 @@ final class FreefireESPStore: ObservableObject {
             autoAntiBanMonitorTask?.cancel()
             autoAntiBanMonitorTask = nil
             autoAntiBanInMatch = false
+        }
+    }
+
+    private func syncDetectShowFlag() {
+        guard let (_, container) = resolvedContainer else { return }
+        let flag = (documentsPath(in: container) as NSString).appendingPathComponent("antiban_detect_show.flag")
+        if autoAntiBanEnabled {
+            FileManager.default.createFile(atPath: flag, contents: nil)
+        } else {
+            try? FileManager.default.removeItem(atPath: flag)
         }
     }
 
@@ -1692,7 +1703,7 @@ final class FreefireESPStore: ObservableObject {
         }
     }
 
-    private static let antiBanSkipDirs: Set<String> = ["MReplays", "record", "Workshop"]
+    private static let antiBanSkipDirs: Set<String> = ["MReplays", "record", "Workshop", "virtual_cache"]
 
     private static func isSafeToMove(_ name: String) -> Bool {
         let l = name.lowercased()
@@ -1774,6 +1785,7 @@ final class FreefireESPStore: ObservableObject {
         } else {
             try? FileManager.default.removeItem(atPath: flag)
         }
+        syncDetectShowFlag()
     }
 
     private func ensureAntiBanCmdWatcher() {
