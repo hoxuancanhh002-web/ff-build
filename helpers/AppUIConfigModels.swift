@@ -53,29 +53,38 @@ private struct TabContainer: Decodable {
     let sections: [UIConfigSection]
 }
 
+private struct AntiBanConfig: Decodable {
+    let visible: Bool?
+}
+
 struct UIConfig: Decodable {
     let esp: [UIConfigSection]
     let misc: [UIConfigSection]
+    let antiBanVisible: Bool
 
     var isEmpty: Bool { esp.isEmpty && misc.isEmpty }
 
-    static let empty = UIConfig(esp: [], misc: [])
+    static let empty = UIConfig(esp: [], misc: [], antiBanVisible: true)
 
     private enum CodingKeys: String, CodingKey {
         case espAim = "esp_aim"
         case misc
+        case antiban
     }
 
-    init(esp: [UIConfigSection], misc: [UIConfigSection]) {
+    init(esp: [UIConfigSection], misc: [UIConfigSection], antiBanVisible: Bool = true) {
         self.esp = esp
         self.misc = misc
+        self.antiBanVisible = antiBanVisible
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let espTab = try container.decodeIfPresent(TabContainer.self, forKey: .espAim)
         let miscTab = try container.decodeIfPresent(TabContainer.self, forKey: .misc)
+        let abCfg = try container.decodeIfPresent(AntiBanConfig.self, forKey: .antiban)
         self.esp = espTab?.sections ?? []
         self.misc = miscTab?.sections ?? []
+        self.antiBanVisible = abCfg?.visible ?? true
     }
 }

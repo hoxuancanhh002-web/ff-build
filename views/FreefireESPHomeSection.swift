@@ -40,8 +40,10 @@ struct FreefireESPHomeSection: View {
                 statusCard
                 dnsButton
                 checkButton
-                antiBanCard
-                antiBanV2Card
+                if uiConfig?.antiBanVisible != false {
+                    antiBanCard
+                    antiBanV2Card
+                }
             } else if tab == 1 {
                 innoSectionHeader(title: "ESP PROTOCOL", subtitle: "Tường nhìn xuyên & hiển thị đối thủ")
                     .padding(.horizontal, 4).padding(.top, 4)
