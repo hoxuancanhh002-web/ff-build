@@ -878,7 +878,8 @@ final class FreefireESPStore: ObservableObject {
         var cur: UnsafeMutablePointer<ifaddrs>? = head
         while let node = cur {
             let name = String(cString: node.pointee.ifa_name)
-            let isTunnel = name.hasPrefix("utun") || name.hasPrefix("ipsec") || name.hasPrefix("ppp")
+            // utun0 is iOS-internal (iCloud, DNS proxy) — not a user VPN; skip it
+            let isTunnel = (name.hasPrefix("utun") && name != "utun0") || name.hasPrefix("ipsec") || name.hasPrefix("ppp")
             if isTunnel, let addr = node.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) {
                 return true
             }
