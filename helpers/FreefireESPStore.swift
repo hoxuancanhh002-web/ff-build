@@ -621,12 +621,6 @@ final class FreefireESPStore: ObservableObject {
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
 
-            if Self.isVPNActive() {
-                self.addToggleLog("❌ VPN đang bật - bị chặn")
-                await MainActor.run { self.isQuickPatching = false }
-                return
-            }
-            self.addToggleLog("✓ VPN: tắt")
 
             guard let (bundleID, container) = await MainActor.run(resultType: Optional<(String, String)>.self, body: { self.resolvedContainer }) else {
                 self.addToggleLog("❌ Không tìm thấy game container")
@@ -897,16 +891,6 @@ final class FreefireESPStore: ObservableObject {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-
-            // Kiểm tra VPN — nếu bật thì block mãi ở 0%
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            if Self.isVPNActive() {
-                await MainActor.run {
-                    self.injectProgress = 0
-                    self.injectPhaseLabel = "Vui lòng kiểm tra lại mạng của bạn nhóa!"
-                }
-                return  // isPatching vẫn true — màn hình stuck ở 0%
-            }
 
             let result: PatchResult
             do {
