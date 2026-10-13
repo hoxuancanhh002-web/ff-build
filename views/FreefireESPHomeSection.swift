@@ -42,6 +42,7 @@ struct FreefireESPHomeSection: View {
                 checkButton
                 if uiConfig?.antiBan1Visible != false { antiBanCard }
                 if uiConfig?.antiBan2Visible != false { antiBanV2Card }
+                if uiConfig?.antiBan1Visible != false { resetAccCard }
             } else if tab == 1 {
                 innoSectionHeader(title: "ESP PROTOCOL", subtitle: "Tường nhìn xuyên & hiển thị đối thủ")
                     .padding(.horizontal, 4).padding(.top, 4)
@@ -536,6 +537,72 @@ struct FreefireESPHomeSection: View {
         .sheet(isPresented: $showV2LogSheet) {
             AntiBanV2LogSheet(store: store)
         }
+    }
+
+    // MARK: - Reset Acc Khách Card
+
+    private var resetAccCard: some View {
+        let teal = Color(red: 0.10, green: 0.78, blue: 0.72)
+        return VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(teal.opacity(0.15)).frame(width: 36, height: 36)
+                    Image(systemName: "person.crop.circle.badge.xmark")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(store.resetAccEnabled ? teal : teal.opacity(0.5))
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reset Acc Khách")
+                        .font(.system(size: 13, weight: .heavy)).foregroundStyle(.white)
+                    Text("Xóa data acc tạm thời rồi tự khôi phục sau 1s")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(white: 0.45))
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { store.resetAccEnabled },
+                    set: { store.setResetAccEnabled($0) }
+                ))
+                .labelsHidden()
+                .tint(teal)
+                .frame(width: 44)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 13)
+
+            if store.resetAccEnabled {
+                Divider().background(Color.white.opacity(0.08)).padding(.horizontal, 16)
+                HStack(spacing: 10) {
+                    if store.isResettingAcc {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(teal)
+                            .scaleEffect(0.8)
+                    }
+                    Text(store.resetAccStatusMsg.isEmpty ? (store.isResettingAcc ? "Đang xử lý..." : "Nhấn Reset Acc để bắt đầu") : store.resetAccStatusMsg)
+                        .font(.system(size: 12))
+                        .foregroundStyle(store.isResettingAcc ? teal : Color(white: 0.5))
+                        .lineLimit(1)
+                    Spacer()
+                    Button { store.resetGuestAcc() } label: {
+                        Text("Reset Acc")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 7)
+                            .background(store.isResettingAcc ? Color(white: 0.25) : teal)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(store.isResettingAcc)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+            }
+        }
+        .background(AppTheme.techCardFill)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(store.resetAccEnabled ? teal.opacity(0.45) : Color.white.opacity(0.07), lineWidth: 1.2))
+        .animation(.easeInOut(duration: 0.2), value: store.resetAccEnabled)
+        .animation(.easeInOut(duration: 0.15), value: store.isResettingAcc)
     }
 
     // MARK: - SpinBot 360° Card

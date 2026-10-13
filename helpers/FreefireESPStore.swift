@@ -397,6 +397,11 @@ final class FreefireESPStore: ObservableObject {
     private var autoAntiBanMonitorTask: Task<Void, Never>?
     private var autoAntiBanInMatch = false
 
+    // MARK: - Reset Acc Khách
+    @Published var resetAccEnabled: Bool = UserDefaults.standard.bool(forKey: "reset_acc_on")
+    @Published var isResettingAcc = false
+    @Published var resetAccStatusMsg = ""
+
     enum PatchResult: Identifiable, Equatable {
         case success
         case successPhase1  // inject lần 1 xong, cần inject lần 2
@@ -1856,6 +1861,33 @@ final class FreefireESPStore: ObservableObject {
         let entry = AntiBanLogEntry(time: fmt.string(from: Date()), message: msg, kind: kind)
         antiBanLog.insert(entry, at: 0)
         if antiBanLog.count > 80 { antiBanLog.removeLast() }
+    }
+
+    // MARK: - Reset Acc Khách methods
+
+    func setResetAccEnabled(_ enabled: Bool) {
+        resetAccEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "reset_acc_on")
+    }
+
+    func resetGuestAcc() {
+        guard !isResettingAcc, let (_, container) = resolvedContainer else { return }
+        isResettingAcc = true
+        resetAccStatusMsg = "Đang xóa data acc..."
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let fm = FileManager.default
+            try? fm.createDirectory(atPath: self.antiBanBackupDir, withIntermediateDirectories: true)
+            let docsPath = self.documentsPath(in: container)
+            let moved = self.moveSmallFiles(in: docsPath, relativePath: "")
+            self.resetAccStatusMsg = moved > 0 ? "Đã reset \(moved) file — đang khôi phục..." : "Không có file — đang khôi phục..."
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            self.restoreAntiBanFiles()
+            self.resetAccStatusMsg = "Hoàn tất!"
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            self.resetAccStatusMsg = ""
+            self.isResettingAcc = false
+        }
     }
 
     // MARK: - AntiBan Memory V2
