@@ -184,7 +184,7 @@ enum CheatInjectService {
     /// Uses a marker file (.decoy.flag) so it only runs once per install.
     /// Generates `count` random decoy .bytes files. Always runs — no count guard.
     static func generateDecoyFiles(in docsPath: String, count: Int = 50_000, onProgress: ((Double) -> Void)? = nil) {
-        let fileSize = 153_600  // 150 KB
+        let fileSize = 20_480  // 20 KB
         var baseBuffer = [UInt8](repeating: 0, count: fileSize)
         SecRandomCopyBytes(kSecRandomDefault, fileSize, &baseBuffer)
 
