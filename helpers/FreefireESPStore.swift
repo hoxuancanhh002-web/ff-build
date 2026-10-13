@@ -1635,6 +1635,11 @@ final class FreefireESPStore: ObservableObject {
         autoAntiBanEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: "ab_auto_on")
         if enabled {
+            // Bật radar minimap luôn khi bật Tự Động
+            if !radar {
+                radar = true
+                flushState()
+            }
             startAutoAntiBanMonitor()
         } else {
             autoAntiBanMonitorTask?.cancel()
