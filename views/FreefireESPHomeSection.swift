@@ -663,14 +663,9 @@ struct FreefireESPHomeSection: View {
                 Image(systemName: "bolt.shield.fill")
                     .font(.system(size: 13))
                     .foregroundStyle(store.autoAntiBanEnabled ? purple : Color(white: 0.4))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Tự Động (Radar Detect)")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(store.autoAntiBanEnabled ? .white : Color(white: 0.55))
-                    Text("Vào trận → tự bật  ·  Thoát trận → tự tắt")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color(white: 0.38))
-                }
+                Text("Detect")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(store.autoAntiBanEnabled ? .white : Color(white: 0.55))
                 Spacer()
                 Toggle("", isOn: Binding(
                     get: { store.autoAntiBanEnabled },

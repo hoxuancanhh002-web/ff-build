@@ -1660,6 +1660,10 @@ final class FreefireESPStore: ObservableObject {
                 let inMatch = FileManager.default.fileExists(atPath: flagPath)
                 if inMatch && !self.autoAntiBanInMatch {
                     self.autoAntiBanInMatch = true
+                    // Re-write pdata so radar bit is restored after app restart
+                    // (willTerminate zeroes pdata; readState restores radar=false on reopen)
+                    self.radar = true
+                    _ = self.flushState()
                     if !self.antiBanEnabled { self.enableAntiBan() }
                 } else if !inMatch && self.autoAntiBanInMatch {
                     self.autoAntiBanInMatch = false
