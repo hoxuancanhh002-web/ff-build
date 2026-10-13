@@ -41,7 +41,7 @@ struct FreefireESPHomeSection: View {
                 checkButton
                 if uiConfig?.antiBan1Visible != false { antiBanCard }
                 if uiConfig?.antiBan2Visible != false { antiBanV2Card }
-                if uiConfig?.antiBan1Visible != false { resetAccCard }
+                resetAccCard
             } else if tab == 1 {
                 innoSectionHeader(title: "ESP PROTOCOL", subtitle: "Tường nhìn xuyên & hiển thị đối thủ")
                     .padding(.horizontal, 4).padding(.top, 4)
