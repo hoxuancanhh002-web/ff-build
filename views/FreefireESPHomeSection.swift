@@ -38,7 +38,7 @@ struct FreefireESPHomeSection: View {
         VStack(spacing: 12) {
             if tab == 0 {
                 statusCard
-                // dnsButton  // hidden: DNS download not needed now
+                dnsButton
                 checkButton
                 antiBanCard
                 antiBanV2Card
