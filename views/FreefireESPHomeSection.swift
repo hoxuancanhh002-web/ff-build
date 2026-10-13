@@ -481,17 +481,19 @@ struct FreefireESPHomeSection: View {
                     Text("ANTIBAN MEMORY V2")
                         .font(.system(size: 13, weight: .heavy)).foregroundStyle(.white)
                     if store.antiBanV2Enabled {
-                        HStack(spacing: 3) {
-                            Image(systemName: "wrench.fill")
-                                .font(.system(size: 7, weight: .bold))
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(Color(red: 1.0, green: 0.82, blue: 0.2))
+                                .frame(width: 5, height: 5)
+                                .shadow(color: Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.9), radius: 3)
                             Text("BẢO TRÌ")
-                                .font(.system(size: 8, weight: .black))
+                                .font(.system(size: 8, weight: .black, design: .rounded))
                         }
                         .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.2))
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.15))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.12))
                         .clipShape(Capsule())
-                        .overlay(Capsule().strokeBorder(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.4), lineWidth: 0.8))
+                        .overlay(Capsule().strokeBorder(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.35), lineWidth: 0.8))
                     }
                 }
                 Text("Bảo vệ nâng cao liên tục")
@@ -640,17 +642,19 @@ struct FreefireESPHomeSection: View {
                         Text("ANTIBAN MEMORY")
                             .font(.system(size: 13, weight: .heavy)).foregroundStyle(.white)
                         if store.antiBanEnabled {
-                            HStack(spacing: 3) {
-                                Image(systemName: "wrench.fill")
-                                    .font(.system(size: 7, weight: .bold))
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(Color(red: 1.0, green: 0.82, blue: 0.2))
+                                    .frame(width: 5, height: 5)
+                                    .shadow(color: Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.9), radius: 3)
                                 Text("BẢO TRÌ")
-                                    .font(.system(size: 8, weight: .black))
+                                    .font(.system(size: 8, weight: .black, design: .rounded))
                             }
                             .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.2))
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.15))
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.12))
                             .clipShape(Capsule())
-                            .overlay(Capsule().strokeBorder(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.4), lineWidth: 0.8))
+                            .overlay(Capsule().strokeBorder(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.35), lineWidth: 0.8))
                         }
                     }
                     Text("Bật/tắt nút trong game")
