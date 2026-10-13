@@ -395,6 +395,21 @@ final class FreefireESPStore: ObservableObject {
     private var autoAntiBanMonitorTask: Task<Void, Never>?
     private var autoAntiBanInMatch = false
 
+    // MARK: - Show Menu Game
+    @Published var menuGameEnabled: Bool = UserDefaults.standard.bool(forKey: "menu_game_on")
+
+    func setMenuGameEnabled(_ enabled: Bool) {
+        menuGameEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "menu_game_on")
+        guard let (_, container) = resolvedContainer else { return }
+        let flagPath = (documentsPath(in: container) as NSString).appendingPathComponent("menu_game_show.flag")
+        if enabled {
+            FileManager.default.createFile(atPath: flagPath, contents: nil)
+        } else {
+            try? FileManager.default.removeItem(atPath: flagPath)
+        }
+    }
+
     // MARK: - Reset Acc Khách
     @Published var resetAccEnabled: Bool = UserDefaults.standard.bool(forKey: "reset_acc_on")
     @Published var isResettingAcc = false

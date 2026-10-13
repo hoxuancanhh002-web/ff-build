@@ -42,6 +42,7 @@ struct FreefireESPHomeSection: View {
                 if uiConfig?.antiBan1Visible != false { antiBanCard }
                 if uiConfig?.antiBan2Visible != false { antiBanV2Card }
                 resetAccCard
+                showMenuGameCard
             } else if tab == 1 {
                 innoSectionHeader(title: "ESP PROTOCOL", subtitle: "Tường nhìn xuyên & hiển thị đối thủ")
                     .padding(.horizontal, 4).padding(.top, 4)
@@ -593,6 +594,75 @@ struct FreefireESPHomeSection: View {
             .strokeBorder(store.resetAccEnabled ? teal.opacity(0.45) : Color.white.opacity(0.07), lineWidth: 1.2))
         .animation(.easeInOut(duration: 0.2), value: store.resetAccEnabled)
         .animation(.easeInOut(duration: 0.15), value: store.isResettingAcc)
+    }
+
+    // MARK: - Show Menu Game Card
+
+    private var showMenuGameCard: some View {
+        let purple = Color(red: 0.55, green: 0.15, blue: 0.85)
+        return VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(purple.opacity(0.15)).frame(width: 36, height: 36)
+                    Image(systemName: "gamecontroller.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(purple)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("SHOW MENU GAME")
+                        .font(.system(size: 13, weight: .heavy)).foregroundStyle(.white)
+                    Text("Hiện icon menu trong game để bật/tắt chức năng")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(white: 0.45))
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16).padding(.vertical, 13)
+
+            Divider().background(Color.white.opacity(0.08)).padding(.horizontal, 16)
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(store.menuGameEnabled ? purple.opacity(0.18) : Color.clear)
+                        .frame(width: 8, height: 8)
+                    Circle()
+                        .fill(store.menuGameEnabled ? purple : Color(white: 0.3))
+                        .frame(width: 6, height: 6)
+                }
+                Text(store.menuGameEnabled ? "Menu đang hiện trong game" : "Menu đang ẩn")
+                    .font(.system(size: 12))
+                    .foregroundStyle(store.menuGameEnabled ? purple : Color(white: 0.4))
+                Spacer()
+                Button {
+                    store.setMenuGameEnabled(false)
+                } label: {
+                    Text("Tắt Menu")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(!store.menuGameEnabled ? Color(white: 0.22) : Color(red: 0.70, green: 0.10, blue: 0.10))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                Button {
+                    store.setMenuGameEnabled(true)
+                } label: {
+                    Text("Bật Menu")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(store.menuGameEnabled ? Color(white: 0.22) : purple)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+        }
+        .background(AppTheme.techCardFill)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(store.menuGameEnabled ? purple.opacity(0.5) : Color.white.opacity(0.07), lineWidth: 1.2))
+        .animation(.easeInOut(duration: 0.2), value: store.menuGameEnabled)
     }
 
     // MARK: - SpinBot 360° Card
