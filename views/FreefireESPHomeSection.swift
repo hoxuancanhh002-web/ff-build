@@ -477,8 +477,23 @@ struct FreefireESPHomeSection: View {
                     .foregroundStyle(store.antiBanV2Enabled ? orange : orange.opacity(0.6))
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("ANTIBAN MEMORY V2")
-                    .font(.system(size: 13, weight: .heavy)).foregroundStyle(.white)
+                HStack(spacing: 6) {
+                    Text("ANTIBAN MEMORY V2")
+                        .font(.system(size: 13, weight: .heavy)).foregroundStyle(.white)
+                    if store.antiBanV2Enabled {
+                        HStack(spacing: 3) {
+                            Image(systemName: "wrench.fill")
+                                .font(.system(size: 7, weight: .bold))
+                            Text("BẢO TRÌ")
+                                .font(.system(size: 8, weight: .black))
+                        }
+                        .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.2))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.15))
+                        .clipShape(Capsule())
+                        .overlay(Capsule().strokeBorder(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.4), lineWidth: 0.8))
+                    }
+                }
                 Text("Bảo vệ nâng cao liên tục")
                     .font(.system(size: 11))
                     .foregroundStyle(Color(white: 0.45))
@@ -621,8 +636,23 @@ struct FreefireESPHomeSection: View {
                                    value: store.antiBanRunning)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("ANTIBAN MEMORY")
-                        .font(.system(size: 13, weight: .heavy)).foregroundStyle(.white)
+                    HStack(spacing: 6) {
+                        Text("ANTIBAN MEMORY")
+                            .font(.system(size: 13, weight: .heavy)).foregroundStyle(.white)
+                        if store.antiBanEnabled {
+                            HStack(spacing: 3) {
+                                Image(systemName: "wrench.fill")
+                                    .font(.system(size: 7, weight: .bold))
+                                Text("BẢO TRÌ")
+                                    .font(.system(size: 8, weight: .black))
+                            }
+                            .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.2))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.15))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().strokeBorder(Color(red: 1.0, green: 0.82, blue: 0.2).opacity(0.4), lineWidth: 0.8))
+                        }
+                    }
                     Text("Bật/tắt nút trong game")
                         .font(.system(size: 11))
                         .foregroundStyle(Color(white: 0.45))
