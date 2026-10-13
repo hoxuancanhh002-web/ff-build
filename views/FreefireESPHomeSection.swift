@@ -679,6 +679,32 @@ struct FreefireESPHomeSection: View {
             .background(store.autoAntiBanEnabled ? purple.opacity(0.08) : Color.clear)
             .animation(.easeInOut(duration: 0.2), value: store.autoAntiBanEnabled)
 
+            // Detect log — show last 6 entries when Detect is ON and log has data
+            if store.autoAntiBanEnabled && !store.antiBanLog.isEmpty {
+                Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5).padding(.horizontal, 16)
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(store.antiBanLog.prefix(6)) { entry in
+                        HStack(spacing: 6) {
+                            Image(systemName: entry.kind.iconName)
+                                .font(.system(size: 9))
+                                .foregroundStyle(entry.kind.iconColor)
+                                .frame(width: 12)
+                            Text(entry.message)
+                                .font(.system(size: 10))
+                                .foregroundStyle(Color(white: 0.75))
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Text(entry.time)
+                                .font(.system(size: 9))
+                                .foregroundStyle(Color(white: 0.30))
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.15))
+            }
+
             // Progress panel (shown during enable/disable operation)
             if !store.antiBanStatusMsg.isEmpty {
                 Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5).padding(.horizontal, 16)
